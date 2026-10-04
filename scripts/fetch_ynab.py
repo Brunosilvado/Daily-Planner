@@ -49,6 +49,9 @@ Security notes:
 import os
 import sys
 import datetime
+from zoneinfo import ZoneInfo
+
+CENTRAL = ZoneInfo("America/Chicago")
 import requests
 
 API_BASE = "https://api.ynab.com/v1"
@@ -153,8 +156,8 @@ def get_money_data():
     except ValueError:
         expected_income = DEFAULT_EXPECTED_MONTHLY_INCOME
 
-    now_central = datetime.datetime.now(datetime.timezone.utc).strftime(
-        "%b %-d, %Y · %-I:%M %p UTC"
+    now_central = datetime.datetime.now(CENTRAL).strftime(
+        "%b %-d, %Y · %-I:%M %p Central"
     )
 
     return {

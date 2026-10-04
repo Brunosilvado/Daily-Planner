@@ -136,7 +136,20 @@ function render(){
 
   renderMoney(); // independent of which tab is showing; cheap, keeps state current if viewer switches
 
-  if(moneyView){ el('connStatus').textContent=liveData.calendarConnected?'Calendar live · '+liveData.asOf:'Not connected'; el('connStatus').className=liveData.calendarConnected?'pill live':'pill'; return; }
+  // The top-right pill always reflects whichever data source the current
+  // tab actually depends on — Calendar on Today/Tomorrow, YNAB on Money —
+  // rather than always showing Calendar status regardless of what's on screen.
+  if(moneyView){
+    const moneyHasData=!!(money.last30.income||money.last30.spent||money.thisMonth.budgeted);
+    el('connStatus').textContent=moneyHasData?'YNAB live · '+money.asOf:'Not connected';
+    el('connStatus').className=moneyHasData?'pill live':'pill';
+    return;
+  }
+  if(monthly){
+    el('connStatus').textContent='Standing routine';
+    el('connStatus').className='pill';
+    return;
+  }
 
   el('date').textContent=new Intl.DateTimeFormat('en-US',{timeZone:'UTC',...(monthly?{month:'long',year:'numeric'}:{weekday:'long',month:'short',day:'numeric'})}).format(d);
   el('label').textContent=monthly?'YOUR MONTHLY GUIDE':view.toUpperCase()+' · CENTRAL TIME';
