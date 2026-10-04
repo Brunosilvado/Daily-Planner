@@ -90,9 +90,13 @@
   <section id="money" hidden>
     <p class="sub" style="margin:0 0 14px">Cash flow only — no account balances. Check this when you need to, not as part of your evening routine.</p>
     <div class="card status-card">
-      <h3><span class="dot ok"></span>This month's money</h3>
+      <h3><span class="dot" id="moneyDot"></span>This month's money</h3>
       <div id="moneyBody"></div>
     </div>
+    <details style="margin-top:14px">
+      <summary>Last month (for reference)</summary>
+      <div id="moneyLastMonth"></div>
+    </details>
   </section>
 
   <footer id="footer"></footer>

@@ -10,6 +10,13 @@ Settings -> Developer Settings) stored as GitHub Secrets:
 Until both are set, this returns None and the dashboard shows its honest
 "YNAB isn't connected yet" state.
 
+Also reads (optional, not a secret — a plain repo "Variable" works fine,
+Settings -> Secrets and variables -> Actions -> Variables tab):
+  YNAB_EXPECTED_MONTHLY_INCOME - what you typically expect to bring in
+    this month, used only to flag if this month's budgeted amount runs
+    ahead of that. Defaults to 5197.42 if not set. Update it there
+    whenever your expected income changes — no code change needed.
+
 Security notes:
   - YNAB's API doesn't offer a read-only scoped token — any Personal
     Access Token can technically read and write. This code only ever
@@ -31,6 +38,7 @@ import requests
 
 API_BASE = "https://api.ynab.com/v1"
 TIMEOUT_SECONDS = 15
+DEFAULT_EXPECTED_MONTHLY_INCOME = 5197.42
 
 
 def _get(path, token):
@@ -98,6 +106,17 @@ def get_money_data():
     this_label, this_income, this_spent = (
         label_and_amounts(current) if this_month_started else ("", 0, 0)
     )
+    this_budgeted = (
+        money_from_milli(current.get("budgeted", 0)) if this_month_started else 0
+    )
+
+    expected_income_raw = os.environ.get("YNAB_EXPECTED_MONTHLY_INCOME")
+    try:
+        expected_income = (
+            float(expected_income_raw) if expected_income_raw else DEFAULT_EXPECTED_MONTHLY_INCOME
+        )
+    except ValueError:
+        expected_income = DEFAULT_EXPECTED_MONTHLY_INCOME
 
     now_central = datetime.datetime.now(datetime.timezone.utc).strftime(
         "%b %-d, %Y · %-I:%M %p UTC"
@@ -106,7 +125,13 @@ def get_money_data():
     return {
         "asOf": now_central,
         "lastMonth": {"label": last_label, "income": last_income, "spent": last_spent},
-        "thisMonth": {"label": this_label, "income": this_income, "spent": this_spent},
+        "thisMonth": {
+            "label": this_label,
+            "income": this_income,
+            "spent": this_spent,
+            "budgeted": this_budgeted,
+        },
         "readyToAssign": money_from_milli(current.get("to_be_budgeted", 0)),
+        "expectedMonthlyIncome": round(expected_income, 2),
         "note": "From YNAB directly. Card purchases that don’t auto-sync into YNAB may understate spending.",
     }

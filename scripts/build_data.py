@@ -39,8 +39,9 @@ DEFAULT_LIVE_DATA = {
 DEFAULT_MONEY = {
     "asOf": "",
     "lastMonth": {"label": "", "income": 0, "spent": 0},
-    "thisMonth": {"label": "", "income": 0, "spent": 0},
+    "thisMonth": {"label": "", "income": 0, "spent": 0, "budgeted": 0},
     "readyToAssign": 0,
+    "expectedMonthlyIncome": 0,
     "note": "YNAB isn't connected yet.",
 }
 
