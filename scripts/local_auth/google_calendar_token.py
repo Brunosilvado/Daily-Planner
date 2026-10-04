@@ -102,4 +102,12 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    finally:
+        # If this was double-clicked instead of run from an already-open
+        # terminal, Windows closes the window the instant the script ends
+        # — which would wipe the refresh token off the screen before it
+        # could be copied. This keeps the window open until a key is
+        # pressed, regardless of how the script was started.
+        input("\nPress Enter to close this window...")
