@@ -8,43 +8,68 @@ Nothing here is ever committed to git — this only runs inside a GitHub
 Actions job and its output goes straight into the Pages deployment
 artifact, never into the repository.
 
-Phase 2 TODO (once secrets are configured):
-  - fetch_calendar.get_calendar_data(): Google Calendar via a refresh token
-    (GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET / GOOGLE_OAUTH_REFRESH_TOKEN)
-  - fetch_ynab.get_money_data(): YNAB Personal Access Token (YNAB_TOKEN, YNAB_BUDGET_ID)
-  - fetch_todo.get_tasks_data(): Microsoft Graph device-code refresh token
-    (MS_GRAPH_CLIENT_ID / MS_GRAPH_REFRESH_TOKEN)
+Security notes:
+  - Each source is isolated in its own try/except below. If YNAB's API is
+    down, or a token expired, that failure can't take the Calendar or
+    To Do sections down with it — each section just falls back to its own
+    honest "not connected" state.
+  - Errors are logged with only their type and a short message, never with
+    exception args/response bodies that could echo back a token or other
+    sensitive value. Nothing here ever logs a secret.
+  - Every fetcher only ever makes read (GET) calls to these APIs — see the
+    fetch_*.py files. Least privilege: this pipeline can't change or
+    delete anything in your Calendar, YNAB or To Do accounts even if a
+    token were somehow misused.
 """
 import os
+import sys
 import datetime
 
 from fetch_calendar import get_calendar_data
 from fetch_ynab import get_money_data
 from fetch_todo import get_tasks_data
 
+DEFAULT_LIVE_DATA = {
+    "calendarConnected": False,
+    "todoConnected": False,
+    "asOf": "",
+    "items": {},
+}
+
+DEFAULT_MONEY = {
+    "asOf": "",
+    "lastMonth": {"label": "", "income": 0, "spent": 0},
+    "thisMonth": {"label": "", "income": 0, "spent": 0},
+    "readyToAssign": 0,
+    "note": "YNAB isn't connected yet.",
+}
+
+DEFAULT_TASKS = {
+    "asOf": "",
+    "groups": [],
+}
+
+
+def _safe_fetch(label, fn, default):
+    """Run one source's fetcher; on any failure, log a short, secret-free
+    message and fall back to that source's honest 'not connected' default
+    rather than letting one source's outage break the whole dashboard."""
+    try:
+        result = fn()
+        return result if result is not None else dict(default)
+    except Exception as exc:  # noqa: BLE001 - deliberate: isolate every source
+        print(f"[build_data] {label} fetch failed ({type(exc).__name__}) — "
+              f"falling back to 'not connected'.", file=sys.stderr)
+        return dict(default)
+
 
 def build():
     now = datetime.datetime.now(datetime.timezone.utc)
 
-    live_data = get_calendar_data() or {
-        "calendarConnected": False,
-        "todoConnected": False,
-        "asOf": "",
-        "items": {},
-    }
+    live_data = _safe_fetch("calendar", get_calendar_data, DEFAULT_LIVE_DATA)
+    money = _safe_fetch("ynab", get_money_data, DEFAULT_MONEY)
+    tasks = _safe_fetch("todo", get_tasks_data, DEFAULT_TASKS)
 
-    money = get_money_data() or {
-        "asOf": "",
-        "lastMonth": {"label": "", "income": 0, "spent": 0},
-        "thisMonth": {"label": "", "income": 0, "spent": 0},
-        "readyToAssign": 0,
-        "note": "YNAB isn't connected yet.",
-    }
-
-    tasks = get_tasks_data() or {
-        "asOf": "",
-        "groups": [],
-    }
     # todoConnected tracks separately from calendarConnected inside liveData
     live_data["todoConnected"] = bool(os.environ.get("MS_GRAPH_REFRESH_TOKEN"))
 
