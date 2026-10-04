@@ -41,10 +41,17 @@ function today(){
 
 function renderMoney(){
   const net=money.lastMonth.income-money.lastMonth.spent;
+  const thisNet=money.thisMonth.income-money.thisMonth.spent;
+  const hasThisMonth=(money.thisMonth.income||money.thisMonth.spent);
   const rows=[
-    [`${money.lastMonth.label} — received`, money$(money.lastMonth.income), ''],
-    [`${money.lastMonth.label} — spent`, money$(money.lastMonth.spent), ''],
-    [`${money.lastMonth.label} — net`, (net>=0?'+':'')+money$(net), net<0?'warn':'good'],
+    ...(hasThisMonth ? [
+      [`${money.thisMonth.label} so far — received`, money$(money.thisMonth.income), ''],
+      [`${money.thisMonth.label} so far — spent`, money$(money.thisMonth.spent), ''],
+      [`${money.thisMonth.label} so far — net`, (thisNet>=0?'+':'')+money$(thisNet), thisNet<0?'warn':'good'],
+    ] : []),
+    [`${money.lastMonth.label} (final) — received`, money$(money.lastMonth.income), ''],
+    [`${money.lastMonth.label} (final) — spent`, money$(money.lastMonth.spent), ''],
+    [`${money.lastMonth.label} (final) — net`, (net>=0?'+':'')+money$(net), net<0?'warn':'good'],
     ['Unassigned, ready to budget today', money$(money.readyToAssign), 'good']
   ];
   const rowsEl=document.createElement('div');
