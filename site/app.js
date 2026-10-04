@@ -137,17 +137,13 @@ function render(){
   renderMoney(); // independent of which tab is showing; cheap, keeps state current if viewer switches
 
   // The top-right pill always reflects whichever data source the current
-  // tab actually depends on — Calendar on Today/Tomorrow, YNAB on Money —
-  // rather than always showing Calendar status regardless of what's on screen.
+  // tab actually depends on — Calendar on Today/Tomorrow, YNAB on Money,
+  // nothing live on Monthly — rather than always showing Calendar status
+  // regardless of what's on screen.
   if(moneyView){
     const moneyHasData=!!(money.last30.income||money.last30.spent||money.thisMonth.budgeted);
     el('connStatus').textContent=moneyHasData?'YNAB live · '+money.asOf:'Not connected';
     el('connStatus').className=moneyHasData?'pill live':'pill';
-    return;
-  }
-  if(monthly){
-    el('connStatus').textContent='Standing routine';
-    el('connStatus').className='pill';
     return;
   }
 
@@ -168,7 +164,10 @@ function render(){
     time.textContent=t; span.textContent=s; li.append(time,span); return li;
   }));
 
-  if(liveData.calendarConnected){
+  if(monthly){
+    el('connStatus').textContent='Standing routine';
+    el('connStatus').className='pill';
+  } else if(liveData.calendarConnected){
     el('connStatus').textContent='Calendar live · '+liveData.asOf;
     el('connStatus').className='pill live';
   } else {
@@ -200,10 +199,15 @@ function render(){
   }
 
   if(!monthly){
-    // Tasks card
-    if(!tasks.groups.length){
+    // Tasks card — distinguish "not connected yet" from "connected, and
+    // genuinely nothing open" so an empty list doesn't quietly read as a
+    // working connection when it might not be one.
+    if(!liveData.todoConnected){
+      el('taskDot').className='dot';
+      el('taskBody').innerHTML='<p style="margin:0;font-size:.88rem">Microsoft To&nbsp;Do isn\'t connected to this dashboard yet, so no tasks are shown here.</p>';
+    } else if(!tasks.groups.length){
       el('taskDot').className='dot ok';
-      el('taskBody').innerHTML='<p style="margin:0;font-size:.88rem">Checked — no open tasks outside your routines.</p>';
+      el('taskBody').innerHTML='<p style="margin:0;font-size:.88rem">Checked — no open tasks outside your routines.</p>'+(tasks.asOf?`<p class="sub" style="margin:4px 0 0">Synced ${tasks.asOf}.</p>`:'');
     } else {
       el('taskDot').className=tasks.groups.some(g=>g.items.some(i=>i.overdue))?'dot warn':'dot ok';
       const wrap=document.createElement('div');
