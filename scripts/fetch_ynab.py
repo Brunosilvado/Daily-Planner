@@ -17,6 +17,20 @@ Settings -> Secrets and variables -> Actions -> Variables tab):
     ahead of that. Defaults to 5197.42 if not set. Update it there
     whenever your expected income changes — no code change needed.
 
+Why "last 30 days" instead of "this calendar month":
+  A calendar-month view resets to $0 on the 1st, so a credit card payment
+  that lands on the 1st (covering purchases from the month that just
+  ended) makes the brand-new month look artificially bad for a few days.
+  A rolling 30-day window avoids that cliff — every day, it's simply "the
+  last 30 days of real cash flow." Transfers between your own accounts
+  (including paying off a tracked credit card) are excluded entirely, the
+  same way YNAB's own reports exclude them, so money moving between your
+  own accounts never counts as income or spending here.
+  Note: this smooths the *presentation*; it can't retroactively fix a
+  purchase that was entered as one lump payment-day transaction instead
+  of being dated when it actually happened — that still needs fixing at
+  the YNAB data-entry level to be fully accurate.
+
 Security notes:
   - YNAB's API doesn't offer a read-only scoped token — any Personal
     Access Token can technically read and write. This code only ever
@@ -27,9 +41,10 @@ Security notes:
   - The token is only ever read from the environment (injected by GitHub
     Actions from the secret) and is never printed, logged, or written to
     data.json.
-  - Scope stays cash-flow only: income, spent, net and Ready to Assign.
-    No account or card balances — per the project's privacy rule, that
-    would need a further explicit ask.
+  - Scope stays cash-flow only: income, spent, net and a monthly budgeted
+    vs. expected-income check. No account or card balances, and no
+    individual transaction detail is ever written to data.json — per the
+    project's privacy rule, that would need a further explicit ask.
 """
 import os
 import sys
@@ -39,6 +54,7 @@ import requests
 API_BASE = "https://api.ynab.com/v1"
 TIMEOUT_SECONDS = 15
 DEFAULT_EXPECTED_MONTHLY_INCOME = 5197.42
+ROLLING_WINDOW_DAYS = 30
 
 
 def _get(path, token):
@@ -51,9 +67,39 @@ def _get(path, token):
     return resp.json()["data"]
 
 
+def _money_from_milli(milli):
+    return round(milli / 1000, 2)
+
+
 def _month_label(iso_date):
     d = datetime.date.fromisoformat(iso_date)
     return d.strftime("%B")
+
+
+def _rolling_30_day_flow(budget_id, token, today):
+    """Sums real income/spending over the trailing window, excluding any
+    transaction that's a transfer between the user's own accounts (a
+    credit card payment, a checking->savings move, etc.) — matching how
+    YNAB's own category/month reports already treat transfers."""
+    since = (today - datetime.timedelta(days=ROLLING_WINDOW_DAYS - 1)).isoformat()
+    transactions = _get(
+        f"/budgets/{budget_id}/transactions?since_date={since}", token
+    )["transactions"]
+
+    income_milli = 0
+    spent_milli = 0
+    for t in transactions:
+        if t.get("deleted"):
+            continue
+        if t.get("transfer_account_id"):
+            continue  # transfer between the user's own accounts — not real cash flow
+        amount = t.get("amount", 0)
+        if amount > 0:
+            income_milli += amount
+        else:
+            spent_milli += -amount
+
+    return _money_from_milli(income_milli), _money_from_milli(spent_milli)
 
 
 def get_money_data():
@@ -71,44 +117,33 @@ def get_money_data():
     print(f"[fetch_ynab] token length={len(token)}, budget_id length={len(budget_id)}",
           file=sys.stderr)
 
-    months = _get(f"/budgets/{budget_id}/months", token)["months"]
-    # YNAB returns months newest-first, future months included; keep only
-    # months that have actually started (budgeted <= 0 means unused future
-    # month in YNAB's convention isn't reliable, so filter by date instead).
     today = datetime.date.today()
+
+    months = _get(f"/budgets/{budget_id}/months", token)["months"]
     past_or_current = [
         m for m in months if datetime.date.fromisoformat(m["month"]) <= today
     ]
     past_or_current.sort(key=lambda m: m["month"], reverse=True)
-
     if not past_or_current:
         return None
 
     current = past_or_current[0]
     previous = past_or_current[1] if len(past_or_current) > 1 else None
 
-    def money_from_milli(milli):
-        return round(milli / 1000, 2)
-
-    this_month_started = current["month"] == today.replace(day=1).isoformat()
-    last_month_entry = current if not this_month_started else previous
-
     def label_and_amounts(entry):
         if entry is None:
             return "", 0, 0
         return (
             _month_label(entry["month"]),
-            money_from_milli(entry.get("income", 0)),
-            money_from_milli(-entry.get("activity", 0)),  # activity is negative for spending
+            _money_from_milli(entry.get("income", 0)),
+            _money_from_milli(-entry.get("activity", 0)),  # activity is negative for spending
         )
 
-    last_label, last_income, last_spent = label_and_amounts(last_month_entry)
-    this_label, this_income, this_spent = (
-        label_and_amounts(current) if this_month_started else ("", 0, 0)
-    )
-    this_budgeted = (
-        money_from_milli(current.get("budgeted", 0)) if this_month_started else 0
-    )
+    last_label, last_income, last_spent = label_and_amounts(previous)
+    this_month_label = _month_label(current["month"])
+    this_budgeted = _money_from_milli(current.get("budgeted", 0))
+
+    last30_income, last30_spent = _rolling_30_day_flow(budget_id, token, today)
 
     expected_income_raw = os.environ.get("YNAB_EXPECTED_MONTHLY_INCOME")
     try:
@@ -124,14 +159,9 @@ def get_money_data():
 
     return {
         "asOf": now_central,
+        "last30": {"income": last30_income, "spent": last30_spent},
+        "thisMonth": {"label": this_month_label, "budgeted": this_budgeted},
         "lastMonth": {"label": last_label, "income": last_income, "spent": last_spent},
-        "thisMonth": {
-            "label": this_label,
-            "income": this_income,
-            "spent": this_spent,
-            "budgeted": this_budgeted,
-        },
-        "readyToAssign": money_from_milli(current.get("to_be_budgeted", 0)),
         "expectedMonthlyIncome": round(expected_income, 2),
         "note": "From YNAB directly. Card purchases that don’t auto-sync into YNAB may understate spending.",
     }
