@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Daily Compass</title>
+<link rel="stylesheet" href="style.css">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&display=swap" rel="stylesheet">
+</head>
+<body>
+<main>
+  <header>
+    <div class="brand"><b>Daily Compass</b><span>Bruno &amp; Claudia</span></div>
+    <span class="pill" id="connStatus">Not connected</span>
+  </header>
+
+  <nav aria-label="Plan view">
+    <button data-view="today" aria-pressed="true">Today</button>
+    <button data-view="tomorrow" aria-pressed="false">Tomorrow</button>
+    <button data-view="month" aria-pressed="false">Monthly</button>
+    <button data-view="money" aria-pressed="false">Money</button>
+  </nav>
+
+  <div id="daily">
+    <p class="sub" id="label">EVENING PLAN · CENTRAL TIME</p>
+    <h1 class="dateline" id="date"></h1>
+
+    <section class="focus">
+      <div class="eyebrow"><span id="origin"></span><span class="badge" id="duration"></span></div>
+      <h2 id="action"></h2>
+      <p id="step"></p>
+      <div class="when" id="slot"></div>
+    </section>
+
+    <div class="alt">
+      <div>
+        <b>Shorter alternative — instead, not in addition</b>
+        <p id="alternative"></p>
+      </div>
+    </div>
+
+    <div class="card status-card" style="margin-bottom:14px">
+      <h3><span class="dot" id="calDot"></span>Beyond your standing schedule</h3>
+      <div id="liveBody"></div>
+    </div>
+
+    <details>
+      <summary><span class="dot" id="taskDot" style="display:inline-block;margin-right:6px;vertical-align:middle"></span>Open tasks (To Do)</summary>
+      <div id="taskBody"></div>
+    </details>
+
+    <div class="card" style="margin:14px 0">
+      <h3>Protect your time</h3>
+      <ol class="timeline" id="timeline"></ol>
+    </div>
+
+    <details>
+      <summary>Your weekly rhythm</summary>
+      <p><b>Tuesday · 8:00–8:30 p.m.</b><br>Household monthly priorities</p>
+      <p><b>Wednesday · 8:00–8:35 p.m.</b><br>Trading study</p>
+      <p><b>Thursday · 8:00–8:35 p.m.</b><br>Historical replay &amp; journal</p>
+      <p class="sub" style="margin:10px 0 0">Monday is extra childcare (Claudia's meeting). Friday evening and Saturday morning are protected family time. Sunday is church and family afternoon. October 13 skips the household block for Claudia's birthday.</p>
+    </details>
+
+    <div class="links">
+      <a href="https://to-do.office.com/tasks/">Open Microsoft To Do</a>
+      <a href="https://calendar.google.com/calendar/u/0/r">Open Google Calendar</a>
+    </div>
+  </div>
+
+  <section id="month" hidden>
+    <p class="sub" style="margin:0 0 14px">Review windows, not bill or tax deadlines — pick one manageable next step in each.</p>
+    <div id="windows"></div>
+    <details>
+      <summary>Quarterly &amp; annual reviews</summary>
+      <dl class="quarterly">
+        <dt>January · April · July · October</dt><dd>Deeper investment, emergency fund, insurance and home-maintenance review</dd>
+        <dt>January</dt><dd>Annual budget, savings and investment goals</dd>
+        <dt>March–April</dt><dd>Tax preparation — confirm actual deadlines separately</dd>
+        <dt>June–July</dt><dd>Mid-year financial review</dd>
+        <dt>October</dt><dd>Holiday spending plan</dd>
+        <dt>December</dt><dd>Year-end review, donations within budget, next year's goals</dd>
+      </dl>
+      <p class="sub" style="margin-top:10px">A quarterly or annual review replaces that month's related window rather than adding to it.</p>
+    </details>
+  </section>
+
+  <section id="money" hidden>
+    <p class="sub" style="margin:0 0 14px">Cash flow only — no account balances. Check this when you need to, not as part of your evening routine.</p>
+    <div class="card status-card">
+      <h3><span class="dot ok"></span>This month's money</h3>
+      <div id="moneyBody"></div>
+    </div>
+  </section>
+
+  <footer id="footer"></footer>
+</main>
+<script src="app.js"></script>
+</body>
+</html>
