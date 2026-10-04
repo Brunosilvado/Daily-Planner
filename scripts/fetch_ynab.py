@@ -25,6 +25,7 @@ Security notes:
     would need a further explicit ask.
 """
 import os
+import sys
 import datetime
 import requests
 
@@ -48,10 +49,19 @@ def _month_label(iso_date):
 
 
 def get_money_data():
-    token = os.environ.get("YNAB_TOKEN")
-    budget_id = os.environ.get("YNAB_BUDGET_ID")
+    # .strip(): GitHub's secret textarea (or a clipboard manager) can pick
+    # up a trailing newline/space on paste, which would otherwise silently
+    # turn a correct token into an invalid Authorization header.
+    token = (os.environ.get("YNAB_TOKEN") or "").strip()
+    budget_id = (os.environ.get("YNAB_BUDGET_ID") or "").strip()
     if not token or not budget_id:
         return None
+
+    # Safe to log: lengths only, never the values. Helps tell "wrong token"
+    # apart from "token/id got truncated or merged by a copy-paste glitch"
+    # without ever printing anything secret.
+    print(f"[fetch_ynab] token length={len(token)}, budget_id length={len(budget_id)}",
+          file=sys.stderr)
 
     months = _get(f"/budgets/{budget_id}/months", token)["months"]
     # YNAB returns months newest-first, future months included; keep only
