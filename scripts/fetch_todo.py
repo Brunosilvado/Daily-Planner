@@ -34,6 +34,7 @@ Security notes:
 """
 import datetime
 import os
+import sys
 
 import requests
 
@@ -117,11 +118,21 @@ def get_tasks_data():
     if not (client_id and refresh_token and CENTRAL):
         return None
 
+    # Safe to log: lengths and counts only, never the values or task text.
+    print(f"[fetch_todo] client_id length={len(client_id)}, "
+          f"refresh_token length={len(refresh_token)}", file=sys.stderr)
+
     today = datetime.datetime.now(CENTRAL).date()
     access_token = _get_access_token(client_id, refresh_token)
 
+    all_lists = _fetch_lists(access_token)
+    excluded_count = sum(1 for l in all_lists if (l.get("displayName") or "") in EXCLUDED_LISTS)
+    # Counts only — never list names or task text in a public repo's logs.
+    print(f"[fetch_todo] found {len(all_lists)} list(s), "
+          f"{excluded_count} excluded as standing routines", file=sys.stderr)
+
     groups = []
-    for todo_list in _fetch_lists(access_token):
+    for todo_list in all_lists:
         name = todo_list.get("displayName") or "List"
         if name in EXCLUDED_LISTS:
             continue
@@ -146,6 +157,8 @@ def get_tasks_data():
         groups.append({"list": name, "items": items})
 
     now_label = datetime.datetime.now(CENTRAL).strftime("%b %-d, %Y · %-I:%M %p Central")
+    print(f"[fetch_todo] returning {len(groups)} group(s) with open tasks",
+          file=sys.stderr)
 
     return {
         "asOf": now_label,
