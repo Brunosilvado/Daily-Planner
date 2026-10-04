@@ -63,32 +63,55 @@ function renderMoney(){
     return wrap;
   };
 
-  const thisRows=hasThisMonth ? [
-    [`${money.thisMonth.label} so far — received`, money$(money.thisMonth.income), ''],
-    [`${money.thisMonth.label} so far — spent`, money$(money.thisMonth.spent), ''],
-    [`${money.thisMonth.label} so far — net`, (thisNet>=0?'+':'')+money$(thisNet), thisNet<0?'warn':'good'],
-    [`Budgeted this month`, money$(budgeted)+(expected>0?' of '+money$(expected)+' expected':''), overBudgeted?'warn':''],
-    ['Unassigned, ready to budget today', money$(money.readyToAssign), 'good'],
-  ] : [
-    ['Unassigned, ready to budget today', money$(money.readyToAssign), 'good'],
-  ];
-
   const bodyWrap=document.createElement('div');
-  bodyWrap.appendChild(buildRows(thisRows));
 
-  let statusLine='';
-  if(!hasThisMonth) statusLine='This month hasn’t started in YNAB yet.';
-  else if(thisNet<0 && overBudgeted) statusLine='Spending has passed income this month, and you’ve budgeted more than you expect to earn.';
-  else if(thisNet<0) statusLine='Spending has passed income so far this month.';
-  else if(overBudgeted) statusLine='You’ve budgeted more than this month’s expected income.';
-  else statusLine='Income is covering spending, and budgeted amounts are within expected income.';
-  const status=document.createElement('p');
-  status.className='sub'; status.style.margin='10px 0 0'; status.style.fontWeight='600';
-  status.style.color=(hasThisMonth && (thisNet<0||overBudgeted))?'var(--warn)':'var(--ink-soft)';
-  status.textContent=statusLine;
-  bodyWrap.appendChild(status);
+  if(!hasThisMonth){
+    const empty=document.createElement('p'); empty.className='sub'; empty.style.margin='0';
+    empty.textContent='This month hasn’t started in YNAB yet.';
+    bodyWrap.appendChild(empty);
+  } else {
+    // Headline: the one number that answers "am I saving money right now?"
+    const headline=document.createElement('div'); headline.className='money-headline';
+    const hLabel=document.createElement('span'); hLabel.className='label';
+    hLabel.textContent=`Net so far · ${money.thisMonth.label}`;
+    const hValue=document.createElement('span'); hValue.className='value'+(thisNet<0?' warn':'');
+    hValue.textContent=(thisNet>=0?'+':'')+money$(thisNet);
+    headline.append(hLabel,hValue);
+    bodyWrap.appendChild(headline);
 
-  const note=document.createElement('p'); note.className='sub'; note.style.margin='6px 0 0'; note.textContent=money.note+(money.asOf?' Synced '+money.asOf+'.':'');
+    bodyWrap.appendChild(buildRows([
+      ['Received', money$(money.thisMonth.income), ''],
+      ['Spent', money$(money.thisMonth.spent), ''],
+    ]));
+
+    if(expected>0){
+      const barWrap=document.createElement('div'); barWrap.className='budget-bar-wrap';
+      const labels=document.createElement('div'); labels.className='budget-bar-labels';
+      const left=document.createElement('span'); left.textContent='Budgeted '+money$(budgeted);
+      const right=document.createElement('span'); right.textContent='Expected income '+money$(expected);
+      labels.append(left,right);
+      const bar=document.createElement('div'); bar.className='budget-bar';
+      const fill=document.createElement('div'); fill.className='budget-bar-fill'+(overBudgeted?' warn':'');
+      const pct=Math.max(0,Math.min(100,(budgeted/expected)*100));
+      fill.style.width=pct+'%';
+      bar.appendChild(fill);
+      barWrap.append(labels,bar);
+      bodyWrap.appendChild(barWrap);
+    }
+
+    let statusLine='';
+    if(thisNet<0 && overBudgeted) statusLine='Spending has passed income this month, and you’ve budgeted more than you expect to earn.';
+    else if(thisNet<0) statusLine='Spending has passed income so far this month.';
+    else if(overBudgeted) statusLine='You’ve budgeted more than this month’s expected income.';
+    else statusLine='Income is covering spending, and budgeted amounts are within expected income.';
+    const status=document.createElement('p');
+    status.className='sub'; status.style.margin='12px 0 0'; status.style.fontWeight='600';
+    status.style.color=(thisNet<0||overBudgeted)?'var(--warn)':'var(--ink-soft)';
+    status.textContent=statusLine;
+    bodyWrap.appendChild(status);
+  }
+
+  const note=document.createElement('p'); note.className='sub'; note.style.margin='10px 0 0'; note.textContent=money.note+(money.asOf?' Synced '+money.asOf+'.':'');
   bodyWrap.appendChild(note);
   el('moneyBody').replaceChildren(bodyWrap);
 

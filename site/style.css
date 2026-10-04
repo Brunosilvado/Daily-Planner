@@ -68,6 +68,15 @@ ol.timeline time{color:var(--ink-soft);font-variant-numeric:tabular-nums;font-si
 .stat-row:first-child{border-top:0}
 .stat-row b{font-variant-numeric:tabular-nums;font-size:.95rem}
 .stat-row.warn b{color:var(--warn)}
+.money-headline{text-align:center;padding:4px 0 16px}
+.money-headline .label{display:block;font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-soft);margin-bottom:6px}
+.money-headline .value{font-family:var(--font-display);font-size:clamp(2rem,10vw,2.6rem);font-variant-numeric:tabular-nums;letter-spacing:-.02em;color:var(--accent-ink)}
+.money-headline .value.warn{color:var(--warn)}
+.budget-bar-wrap{margin:14px 0 2px}
+.budget-bar-labels{display:flex;justify-content:space-between;font-size:.78rem;color:var(--ink-soft);margin-bottom:6px}
+.budget-bar{height:8px;border-radius:999px;background:var(--idle-soft);overflow:hidden}
+.budget-bar-fill{height:100%;border-radius:999px;background:var(--accent);transition:width .2s}
+.budget-bar-fill.warn{background:var(--warn)}
 .stat-row.good b{color:var(--accent-ink)}
 .taskgroup{margin:0 0 12px}
 .taskgroup:last-child{margin-bottom:0}
