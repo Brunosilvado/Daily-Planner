@@ -11,6 +11,7 @@ PAGES_SLUG must be set as a GitHub Actions secret (Settings -> Secrets and
 variables -> Actions -> New repository secret). If it's missing, the build
 fails loudly rather than silently publishing to a guessable path.
 """
+import hashlib
 import json
 import os
 import shutil
@@ -46,8 +47,27 @@ def main():
 
     dest = os.path.join(OUT, slug)
     os.makedirs(dest)
-    for name in ("index.html", "style.css", "app.js"):
-        shutil.copyfile(os.path.join(SITE_SRC, name), os.path.join(dest, name))
+    shutil.copyfile(os.path.join(SITE_SRC, "style.css"), os.path.join(dest, "style.css"))
+    shutil.copyfile(os.path.join(SITE_SRC, "app.js"), os.path.join(dest, "app.js"))
+
+    # Cache-busting: phones and browsers can cache style.css/app.js
+    # aggressively (GitHub Pages serves them with a far-future cache
+    # header), so a deploy can silently go unnoticed on a device that
+    # already has the old files cached. Tagging each with a hash of its
+    # own content forces a fresh fetch whenever that file actually
+    # changes, while leaving the cache alone (and the URL stable) when
+    # it doesn't.
+    with open(os.path.join(SITE_SRC, "style.css"), "rb") as f:
+        css_hash = hashlib.sha256(f.read()).hexdigest()[:10]
+    with open(os.path.join(SITE_SRC, "app.js"), "rb") as f:
+        js_hash = hashlib.sha256(f.read()).hexdigest()[:10]
+
+    with open(os.path.join(SITE_SRC, "index.html"), encoding="utf-8") as f:
+        html = f.read()
+    html = html.replace('href="style.css"', f'href="style.css?v={css_hash}"')
+    html = html.replace('src="app.js"', f'src="app.js?v={js_hash}"')
+    with open(os.path.join(dest, "index.html"), "w", encoding="utf-8") as f:
+        f.write(html)
 
     data = build_data()
     with open(os.path.join(dest, "data.json"), "w") as f:
