@@ -58,7 +58,13 @@ def _safe_fetch(label, fn, default):
         result = fn()
         return result if result is not None else dict(default)
     except Exception as exc:  # noqa: BLE001 - deliberate: isolate every source
-        print(f"[build_data] {label} fetch failed ({type(exc).__name__}) — "
+        detail = ""
+        resp = getattr(exc, "response", None)
+        if resp is not None:
+            # Safe to log: HTTP status + reason only, never headers/body,
+            # so a token can never end up in the Actions log.
+            detail = f", HTTP {resp.status_code} {resp.reason}"
+        print(f"[build_data] {label} fetch failed ({type(exc).__name__}{detail}) — "
               f"falling back to 'not connected'.", file=sys.stderr)
         return dict(default)
 
