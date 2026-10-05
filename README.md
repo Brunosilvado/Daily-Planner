@@ -57,24 +57,31 @@ stored as a repo secret (`PAGES_SLUG`), not written in any file here.
 - ✅ Scheduled refresh: on, runs 6×/day (covers both summer/winter time
   automatically, so no manual clock-change fix twice a year)
 - ✅ First successful publish: confirmed working
-- ⏳ **Not yet connected:** Google Calendar, YNAB, Microsoft To Do. Until
-  each is connected, that section of the dashboard honestly says "not
-  connected yet" rather than showing fake numbers — nothing is faked.
+- ✅ **All three data sources connected:** YNAB (money), Google Calendar,
+  and Microsoft To Do are all live. Every section shows real data now —
+  nothing here is faked or placeholder.
 
-## Turning on the real data (next step, whenever you're ready)
+## If a connection ever needs refreshing
 
-Three separate one-time connections, each adds one or more secrets:
+Each connection runs on a long-lived token minted once through a
+one-time sign-in (never through anything typed in a chat with Claude).
+If a section ever reverts to its honest "not connected yet" state after
+working fine for a while, the fix is just re-running that source's local
+consent script once more for a fresh token:
 
-1. **YNAB** (money) — generate a Personal Access Token in YNAB's own
-   settings (Account Settings → Developer Settings). Simplest of the
-   three, no back-and-forth needed.
-2. **Google Calendar** — a one-time consent step tied to a small Google
-   Cloud project, producing a token that keeps itself valid indefinitely.
-3. **Microsoft To Do** — a one-time sign-in using the Azure app already
-   registered for this project, producing a similar long-lived token.
+1. **YNAB** (money) — generate a new Personal Access Token in YNAB's own
+   settings (Account Settings → Developer Settings) and update the
+   `YNAB_TOKEN` secret.
+2. **Google Calendar** — re-run `scripts/local_auth/google_calendar_token.py`
+   on your own computer and update `GOOGLE_OAUTH_REFRESH_TOKEN`.
+3. **Microsoft To Do** — re-run `scripts/local_auth/ms_todo_token.py` on
+   your own computer and update `MS_GRAPH_REFRESH_TOKEN`.
 
-Claude can walk through each of these with you when you're ready — just
-ask to continue the Daily Planner setup.
+Whatever a script prints, it goes straight into the matching GitHub
+secret — never pasted into a chat with Claude, since that's the one
+place it stops being private.
+
+Claude can walk through any of these again whenever needed — just ask.
 
 ## If something looks broken
 
