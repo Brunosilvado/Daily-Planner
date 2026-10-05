@@ -65,6 +65,16 @@ def _get_access_token(client_id, refresh_token):
         },
         timeout=TIMEOUT_SECONDS,
     )
+    if not resp.ok:
+        # Safe to log: Microsoft's short machine-readable error code (e.g.
+        # "invalid_grant", "consent_required") — never error_description,
+        # which can echo back contextual detail, and never the request or
+        # response body otherwise.
+        try:
+            code = resp.json().get("error", "(no error code in response)")
+        except ValueError:
+            code = "(non-JSON response)"
+        print(f"[fetch_todo] token exchange rejected: {code}", file=sys.stderr)
     resp.raise_for_status()
     return resp.json()["access_token"]
 
