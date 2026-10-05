@@ -134,14 +134,24 @@ def _due_date(task, today):
 
 
 def get_tasks_data():
-    client_id = (os.environ.get("MS_GRAPH_CLIENT_ID") or "").strip()
-    refresh_token = (os.environ.get("MS_GRAPH_REFRESH_TOKEN") or "").strip()
+    # .strip() alone only trims the two ends. A refresh token wraps across
+    # several lines in a terminal, and if that got selected/copied as
+    # multiple lines (rather than one unwrapped line), an embedded newline
+    # or space would land in the middle of the secret and invalidate it
+    # outright — so this strips ALL whitespace, not just leading/trailing.
+    raw_client_id = os.environ.get("MS_GRAPH_CLIENT_ID") or ""
+    raw_refresh_token = os.environ.get("MS_GRAPH_REFRESH_TOKEN") or ""
+    client_id = "".join(raw_client_id.split())
+    refresh_token = "".join(raw_refresh_token.split())
     if not (client_id and refresh_token and CENTRAL):
         return None
 
     # Safe to log: lengths and counts only, never the values or task text.
-    print(f"[fetch_todo] client_id length={len(client_id)}, "
-          f"refresh_token length={len(refresh_token)}", file=sys.stderr)
+    # If the "raw" and cleaned lengths differ, the secret had embedded
+    # whitespace/newlines — a strong sign of a multi-line copy-paste.
+    print(f"[fetch_todo] client_id length={len(client_id)} (raw {len(raw_client_id.strip())}), "
+          f"refresh_token length={len(refresh_token)} (raw {len(raw_refresh_token.strip())})",
+          file=sys.stderr)
 
     today = datetime.datetime.now(CENTRAL).date()
     access_token = _get_access_token(client_id, refresh_token)
