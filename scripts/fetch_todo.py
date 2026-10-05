@@ -89,10 +89,14 @@ def _get_access_token(client_id, refresh_token):
 
 
 def _fetch_lists(access_token):
+    # No query params here: Microsoft's To Do API has limited/inconsistent
+    # support for OData options like $select on this endpoint and returns
+    # a plain 400 "invalidRequest" rather than ignoring what it doesn't
+    # support — simplest fix is to just fetch the full (small) objects and
+    # read the two fields we need from them.
     resp = requests.get(
         f"{GRAPH_BASE}/me/todo/lists",
         headers={"Authorization": f"Bearer {access_token}"},
-        params={"$select": "id,displayName"},
         timeout=TIMEOUT_SECONDS,
     )
     _log_if_error(resp, "list-lists call")
@@ -101,12 +105,14 @@ def _fetch_lists(access_token):
 
 
 def _fetch_open_tasks(access_token, list_id):
+    # Dropped $select here too, for the same reason as _fetch_lists above
+    # — keeping only $filter/$top, which are the well-supported options
+    # on this subresource.
     resp = requests.get(
         f"{GRAPH_BASE}/me/todo/lists/{list_id}/tasks",
         headers={"Authorization": f"Bearer {access_token}"},
         params={
             "$filter": "status ne 'completed'",
-            "$select": "title,status,dueDateTime",
             "$top": 50,
         },
         timeout=TIMEOUT_SECONDS,
