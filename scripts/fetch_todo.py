@@ -54,6 +54,24 @@ except Exception:  # pragma: no cover - defensive only
     CENTRAL = None
 
 
+def _log_if_error(resp, label):
+    """Safe to log: only a short machine-readable error code — Microsoft's
+    AAD token endpoint uses a flat {"error": "invalid_grant", ...} shape,
+    Graph API uses a nested {"error": {"code": "BadRequest", ...}} shape —
+    never error_description/message, which can echo back contextual
+    detail, and never the request or response body otherwise."""
+    if resp.ok:
+        return
+    try:
+        body = resp.json()
+        err = body.get("error")
+        code = err.get("code") if isinstance(err, dict) else err
+        code = code or "(no error code in response)"
+    except ValueError:
+        code = "(non-JSON response)"
+    print(f"[fetch_todo] {label} rejected: {code}", file=sys.stderr)
+
+
 def _get_access_token(client_id, refresh_token):
     resp = requests.post(
         TOKEN_URL,
@@ -65,16 +83,7 @@ def _get_access_token(client_id, refresh_token):
         },
         timeout=TIMEOUT_SECONDS,
     )
-    if not resp.ok:
-        # Safe to log: Microsoft's short machine-readable error code (e.g.
-        # "invalid_grant", "consent_required") — never error_description,
-        # which can echo back contextual detail, and never the request or
-        # response body otherwise.
-        try:
-            code = resp.json().get("error", "(no error code in response)")
-        except ValueError:
-            code = "(non-JSON response)"
-        print(f"[fetch_todo] token exchange rejected: {code}", file=sys.stderr)
+    _log_if_error(resp, "token exchange")
     resp.raise_for_status()
     return resp.json()["access_token"]
 
@@ -86,6 +95,7 @@ def _fetch_lists(access_token):
         params={"$select": "id,displayName"},
         timeout=TIMEOUT_SECONDS,
     )
+    _log_if_error(resp, "list-lists call")
     resp.raise_for_status()
     return resp.json().get("value", [])
 
@@ -101,6 +111,7 @@ def _fetch_open_tasks(access_token, list_id):
         },
         timeout=TIMEOUT_SECONDS,
     )
+    _log_if_error(resp, "list-tasks call")
     resp.raise_for_status()
     return resp.json().get("value", [])
 
