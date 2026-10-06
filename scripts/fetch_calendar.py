@@ -46,6 +46,12 @@ except Exception:  # pragma: no cover - defensive only
 
 
 def _get_access_token(client_id, client_secret, refresh_token):
+    """Trades the long-lived refresh token (minted once, by hand, via the
+    local consent script) for a short-lived access token that's actually
+    valid for making API calls. This is the normal OAuth2 "refresh token
+    grant" dance — every run of this script does this exchange fresh,
+    since access tokens typically expire after about an hour and refresh
+    tokens are built to be reused indefinitely (unless revoked)."""
     resp = requests.post(
         TOKEN_URL,
         data={
@@ -61,6 +67,10 @@ def _get_access_token(client_id, client_secret, refresh_token):
 
 
 def _fetch_events(access_token, cal_id, time_min, time_max):
+    """One calendar, one time window. singleEvents=true tells Google to
+    expand recurring events (e.g. a weekly meeting) into individual
+    occurrences rather than handing back one repeating-event object we'd
+    have to expand ourselves."""
     resp = requests.get(
         EVENTS_URL_TMPL.format(cal_id=cal_id),
         headers={"Authorization": f"Bearer {access_token}"},
@@ -78,6 +88,11 @@ def _fetch_events(access_token, cal_id, time_min, time_max):
 
 
 def _format_range(start, end, all_day):
+    """Turns two datetimes into a display string like "6:00–6:30 PM", or
+    "9:00 AM–1:00 PM" when the event crosses from AM to PM (only the end
+    time gets an AM/PM suffix when both sides already share one, so we're
+    not printing "6:00 PM–6:30 PM" when "6:00–6:30 PM" reads just as
+    clearly). Returns None for all-day events, which get no time at all."""
     if all_day:
         return None  # no time prefix for all-day items
     start_period, end_period = start.strftime("%p"), end.strftime("%p")
@@ -104,11 +119,18 @@ def get_calendar_data():
     today_start = now_central.replace(hour=0, minute=0, second=0, microsecond=0)
     tomorrow_end = today_start + datetime.timedelta(days=2)  # covers today + tomorrow
 
+    # Pre-create one (empty, for now) list per date so every calendar's
+    # events land in the right bucket below, and so a day with zero events
+    # still shows up as "checked, nothing found" rather than being absent.
     items = {
         today_start.date().isoformat(): [],
         (today_start + datetime.timedelta(days=1)).date().isoformat(): [],
     }
 
+    # Google Calendar has no single endpoint that reads several calendars
+    # at once, so this loops over each one in GOOGLE_CALENDAR_IDS and makes
+    # its own request — label (e.g. "Bruno", "Claudia") gets prefixed onto
+    # each event's title below so the dashboard can tell whose event is whose.
     for cal in calendars:
         cal_id = cal.get("id")
         label = cal.get("label") or "Calendar"
@@ -120,6 +142,10 @@ def get_calendar_data():
                 continue
             start_raw = event.get("start", {})
             end_raw = event.get("end", {})
+            # Google represents an all-day event with a plain "date" field
+            # and a timed event with a full "dateTime" — this is how the
+            # API itself distinguishes the two, so we check for "date" to
+            # tell them apart rather than guessing from the time values.
             all_day = "date" in start_raw
             if all_day:
                 event_date = start_raw["date"]
@@ -133,6 +159,9 @@ def get_calendar_data():
                 continue  # outside today/tomorrow (shouldn't happen given timeMin/timeMax, but safe)
             summary = event.get("summary", "(no title)")
             text = f"{label} — {summary}"
+            # sortKey is thrown away right below, once it's done its job of
+            # ordering each day's events by start time (all-day events sort
+            # first, since "" sorts before any "H:MM AM/PM" string).
             items[event_date].append({"time": time_range, "sortKey": time_range or "", "text": text})
 
     for date_key in items:

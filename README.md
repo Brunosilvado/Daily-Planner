@@ -83,6 +83,80 @@ place it stops being private.
 
 Claude can walk through any of these again whenever needed — just ask.
 
+## Security notes
+
+A full security review was done on this project (code, GitHub settings,
+and the deploy pipeline). Here's what it found, in plain terms — what's
+already fixed, what's a smaller residual risk, and one decision for you.
+
+### The main finding: build artifacts are briefly downloadable
+
+Every time the robot runs, it packages the finished page (including the
+real secret link and the live data.json — your Calendar/YNAB/To Do
+figures for that run) into something GitHub calls a "build artifact"
+before publishing it. That packaged copy is listed under this repo's
+**Actions** tab, and because this repo is public, **any signed-in GitHub
+account** — not just someone who already has your dashboard link — could
+browse to that Actions run and download it while it's still there.
+
+This doesn't affect the real published page (`_site/<slug>/...`), which
+stays exactly as protected as described above — it's specifically the
+leftover packaging step that's briefly exposed.
+
+**What's already been fixed:** the artifact is now set to delete itself
+after 1 day (`retention-days: 1` in `.github/workflows/deploy.yml`) —
+that's the shortest time GitHub allows. Since the robot runs 6×/day, a
+fresh one replaces the old one well before that day is up anyway, so in
+practice very little is ever sitting there.
+
+**What would close this fully:** moving data.json out of the Pages build
+entirely — for example, having it live in a private GitHub Gist instead,
+fetched by the page at the address only you know, with nothing about the
+Gist's address ever written into any file that gets built or committed.
+That's a real rework of a few files and a new credential, which is a
+large-enough change that it's worth you deciding on it deliberately
+rather than Claude just doing it — ask Claude any time you want to take
+that on, or to talk through the trade-off again.
+
+**Until then:** the 1-day retention limit is the accepted trade-off —
+small residual exposure window, no new credentials or rework needed.
+
+### Smaller findings
+
+- **The secret link (`PAGES_SLUG`) should be long and random.** The
+  build now warns (in the Actions log only, never on the page itself) if
+  it's shorter than 20 random characters — short or guessable slugs are
+  easier for a stranger to stumble onto or brute-force. Ask Claude to
+  generate a fresh, longer one and walk you through rotating it if
+  you'd like.
+- **No branch protection is set on `main`.** Right now, anyone with
+  write access to the repo (just you, today) could push directly to the
+  branch that gets deployed, with no review step. Low risk while it's
+  only you, but a one-click setting in GitHub (Settings → Branches) if
+  you ever add a collaborator.
+- **No automatic dependency updates.** The Python packages this project
+  uses (like `requests`) don't get security patches automatically. GitHub's
+  free Dependabot feature can be turned on (Settings → Code security) to
+  open a pull request automatically when one needs updating.
+
+### What's already solid (confirmed, not just assumed)
+
+- Every API call this project makes is read-only (GET) — Calendar, YNAB,
+  and To Do credentials are all scoped so this code can't change or
+  delete anything in those accounts even if a token were misused.
+- No secret (token, client ID/secret, calendar ID) is ever written to
+  this repository's files or git history, logged in full, or echoed back
+  on the dashboard page — only short, non-secret diagnostics (lengths,
+  counts, machine error codes) ever reach a log.
+- Every bit of text that comes from an outside source (a calendar event
+  title, a task name) is written to the page as plain text, never as
+  raw HTML — so a maliciously-named event or task can't inject anything
+  into the page.
+- The page is kept out of search engines on two independent layers
+  (`robots.txt` plus a `noindex` tag on every page), and the deployment
+  status API GitHub itself exposes was checked by hand and only ever
+  reveals the harmless root URL, never the secret slug.
+
 ## If something looks broken
 
 - Check the **Actions** tab on GitHub (top of the repo page) — every run

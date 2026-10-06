@@ -56,6 +56,13 @@ def main():
           f"{device['user_code']})\n")
     print("Waiting for you to approve in the browser...")
 
+    # "Device code flow" (what this whole script implements) is the OAuth
+    # pattern used when the thing asking for access can't itself show a
+    # web browser easily — think smart TVs typing in a short code shown on
+    # screen. Here it's just a convenient way to sign in from this
+    # terminal: Microsoft gave us a code above, and now this script polls
+    # ("has the user approved yet?") every `interval` seconds until either
+    # the approval comes through or the code expires.
     interval = device.get("interval", 5)
     expires_at = time.time() + device.get("expires_in", 900)
 

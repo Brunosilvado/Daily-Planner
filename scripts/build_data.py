@@ -71,17 +71,33 @@ def _safe_fetch(label, fn, default):
 
 
 def build():
+    """Called once per run by build_site.py. Fetches all three sources
+    (each isolated by _safe_fetch above, so one failing doesn't take the
+    others down) and returns the single dict that gets written to
+    data.json verbatim — site/app.js reads exactly this shape back out.
+    """
     now = datetime.datetime.now(datetime.timezone.utc)
 
     live_data = _safe_fetch("calendar", get_calendar_data, DEFAULT_LIVE_DATA)
     money = _safe_fetch("ynab", get_money_data, DEFAULT_MONEY)
     tasks = _safe_fetch("todo", get_tasks_data, DEFAULT_TASKS)
 
-    # todoConnected tracks separately from calendarConnected inside liveData
+    # todoConnected lives inside liveData (alongside calendarConnected)
+    # purely for historical reasons — it's read by app.js wherever a
+    # Calendar-card note needs to mention To Do's status too. Worth
+    # knowing if you're debugging it: unlike calendarConnected (which
+    # fetch_calendar.py only sets True after an actual successful fetch),
+    # this is just "is the secret present at all" — it doesn't by itself
+    # guarantee the most recent fetch_todo.py call succeeded. In
+    # practice this doesn't cause wrong-looking output, because
+    # site/app.js's Tasks and "Due today" cards separately check
+    # `tasks.groups.length`, which DOES reflect a real, successful fetch
+    # (DEFAULT_TASKS above is always an empty list on any failure) — but
+    # it's a subtlety worth knowing if this ever needs changing.
     live_data["todoConnected"] = bool(os.environ.get("MS_GRAPH_REFRESH_TOKEN"))
 
     return {
-        "generatedAt": now.isoformat(),
+        "generatedAt": now.isoformat(),  # read by app.js's renderFooter()
         "liveData": live_data,
         "money": money,
         "tasks": tasks,

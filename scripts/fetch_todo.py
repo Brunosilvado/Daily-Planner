@@ -73,6 +73,13 @@ def _log_if_error(resp, label):
 
 
 def _get_access_token(client_id, refresh_token):
+    """Same refresh-token-for-access-token exchange as fetch_calendar.py's
+    _get_access_token, just against Microsoft's endpoint instead of
+    Google's — notice there's no client_secret here at all. This app
+    registration is a "public client" (device-code flow), which is the
+    normal choice for a script that can't keep a secret truly secret;
+    Microsoft's security model for that flow relies on the refresh token
+    itself plus the scopes it was granted, not on a client secret."""
     resp = requests.post(
         TOKEN_URL,
         data={

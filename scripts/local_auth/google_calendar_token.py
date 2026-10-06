@@ -32,9 +32,21 @@ TOKEN_URL = "https://oauth2.googleapis.com/token"
 
 
 class _CodeCatcher(http.server.BaseHTTPRequestHandler):
+    """A one-request, throwaway web server. Google's OAuth flow has to
+    redirect the browser *somewhere* after you approve access, and that
+    "somewhere" (the redirect_uri below) has to be a real address that's
+    listening — this class is that address, running only on your own
+    machine (127.0.0.1) for the few seconds it takes to catch the
+    redirect. It stores the authorization `code` Google hands back as a
+    class attribute (simplest way to get it out of the HTTP handler and
+    back into main() below) and never does anything with it beyond that."""
     code = None
 
     def do_GET(self):
+        # The code arrives as a query-string parameter on the redirect
+        # URL, e.g. http://127.0.0.1:PORT/?code=XYZ — this just parses it
+        # out, then shows a plain "you can close this tab" page so you're
+        # not left staring at a blank browser tab.
         params = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
         _CodeCatcher.code = params.get("code", [None])[0]
         self.send_response(200)
@@ -51,6 +63,9 @@ def main():
     client_id = input("Paste your OAuth Client ID: ").strip()
     client_secret = input("Paste your OAuth Client Secret: ").strip()
 
+    # Port 0 means "pick any free port for me" — a fixed port could already
+    # be in use by something else on your machine, so this just asks the
+    # OS for whatever's available right now and reads back which one it got.
     server = http.server.HTTPServer(("127.0.0.1", 0), _CodeCatcher)
     port = server.server_address[1]
     redirect_uri = f"http://127.0.0.1:{port}/"
