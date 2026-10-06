@@ -31,6 +31,7 @@ Security notes:
 import datetime
 import json
 import os
+import sys
 
 import requests
 
@@ -113,6 +114,17 @@ def get_calendar_data():
     if not calendars:
         return None
 
+    # Safe to log: just how many calendars are configured and their labels
+    # ("Bruno", "Claudia") — never the calendar ids themselves, since a
+    # calendar id is very often the account's own email address. This is
+    # the first thing to check if an event seems to be "missing": if the
+    # calendar it actually lives on isn't in this list at all, this count
+    # is the tell — the fix is adding that calendar's id to the
+    # GOOGLE_CALENDAR_IDS secret, not a bug in the fetching code below.
+    labels = [c.get("label") or "(unlabeled)" for c in calendars]
+    print(f"[fetch_calendar] checking {len(calendars)} calendar(s): {', '.join(labels)}",
+          file=sys.stderr)
+
     access_token = _get_access_token(client_id, client_secret, refresh_token)
 
     now_central = datetime.datetime.now(CENTRAL)
@@ -131,12 +143,22 @@ def get_calendar_data():
     # at once, so this loops over each one in GOOGLE_CALENDAR_IDS and makes
     # its own request — label (e.g. "Bruno", "Claudia") gets prefixed onto
     # each event's title below so the dashboard can tell whose event is whose.
+    skipped_outside_window = 0
     for cal in calendars:
         cal_id = cal.get("id")
         label = cal.get("label") or "Calendar"
         if not cal_id:
             continue
         events = _fetch_events(access_token, cal_id, today_start, tomorrow_end)
+        # Safe to log: a count only, never any event's title or time. If
+        # an event you know exists isn't showing up on the dashboard, and
+        # this count for its calendar is 0 (or lower than you'd expect),
+        # that calendar's events genuinely aren't coming back from Google
+        # for today/tomorrow — worth checking directly in Google Calendar
+        # whether the event got moved, cancelled, or is actually on a
+        # different calendar than this label suggests.
+        print(f"[fetch_calendar] '{label}': {len(events)} event(s) in today+tomorrow window",
+              file=sys.stderr)
         for event in events:
             if event.get("status") == "cancelled":
                 continue
@@ -156,6 +178,7 @@ def get_calendar_data():
                 event_date = start_dt.date().isoformat()
                 time_range = _format_range(start_dt, end_dt, all_day)
             if event_date not in items:
+                skipped_outside_window += 1
                 continue  # outside today/tomorrow (shouldn't happen given timeMin/timeMax, but safe)
             summary = event.get("summary", "(no title)")
             text = f"{label} — {summary}"
@@ -168,6 +191,15 @@ def get_calendar_data():
         items[date_key].sort(key=lambda it: it["sortKey"])
         for it in items[date_key]:
             del it["sortKey"]
+
+    # Safe to log: counts only. If this "skipped" number is ever non-zero,
+    # Google returned an event whose computed date landed outside the
+    # today/tomorrow window even though the request's timeMin/timeMax
+    # should have excluded it already — a sign something subtler (like a
+    # timezone conversion edge case right at midnight) is worth a look.
+    total_shown = sum(len(v) for v in items.values())
+    print(f"[fetch_calendar] showing {total_shown} event(s) across today+tomorrow "
+          f"({skipped_outside_window} skipped as outside the window)", file=sys.stderr)
 
     now_label = now_central.strftime("%b %-d, %Y · %-I:%M %p Central")
 
