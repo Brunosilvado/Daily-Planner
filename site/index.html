@@ -14,6 +14,15 @@
   (appearance), and app.js (behavior/data). build_site.py assembles a finished
   copy of all three into the published site on every scheduled run — see that
   file, and the repo's README.md, for how the pieces fit together.
+
+  LAYOUT, as of the October 2026 redesign: just two top-level tabs now,
+  "Plan" and "Money" — down from four. What used to be separate Today /
+  Tomorrow / Monthly tabs are folded into the Plan tab: Today/Tomorrow is
+  now a small toggle INSIDE Plan (see #dayToggle), and Monthly review
+  windows are a compact banner with a "see all" disclosure instead of a
+  whole separate tab nobody checked often. The goal: fewer places to look,
+  and the single most urgent thing (app.js's computeTopPriority()) always
+  leads, instead of everything competing for attention at once.
 -->
 <html lang="en">
 <head>
@@ -33,29 +42,84 @@
   <header>
     <div class="brand"><b>Daily Compass</b><span>Bruno &amp; Claudia</span></div>
     <!-- app.js sets this pill's text/color to whichever data source matters
-         for the currently-selected tab (Calendar, YNAB, or a plain "Standing
-         routine" label on the Monthly tab, which has no live data). -->
+         for the currently-selected tab (Calendar on Plan, YNAB on Money). -->
     <span class="pill" id="connStatus">Not connected</span>
   </header>
 
-  <!-- The four tabs. data-view is read by app.js's click handler, and must
-       exactly match the view names it checks for ('today', 'tomorrow',
-       'month', 'money') — renaming one here without updating app.js would
-       silently break that tab. -->
-  <nav aria-label="Plan view">
-    <button data-view="today" aria-pressed="true">Today</button>
-    <button data-view="tomorrow" aria-pressed="false">Tomorrow</button>
-    <button data-view="month" aria-pressed="false">Monthly</button>
+  <!-- Two top-level tabs. data-view is read by app.js's click handler, and
+       must exactly match the view names it checks for ('plan', 'money') —
+       renaming one here without updating app.js would silently break it. -->
+  <nav aria-label="Dashboard section">
+    <button data-view="plan" aria-pressed="true">Plan</button>
     <button data-view="money" aria-pressed="false">Money</button>
   </nav>
 
-  <!-- ======================= Today / Tomorrow tab ======================= -->
-  <div id="daily">
-    <p class="sub" id="label">EVENING PLAN · CENTRAL TIME</p>
+  <!-- ============================= Plan tab ============================ -->
+  <!-- Today + Tomorrow + Monthly windows, all folded into one tab — see the
+       big comment at the top of this file for why. -->
+  <div id="planView">
+
+    <!-- Today/Tomorrow toggle — a lighter-weight control than a full nav
+         tab, since switching between these two is just "which day am I
+         looking at," not a different section of the dashboard. data-day
+         is read the same way data-view is: app.js matches it exactly. -->
+    <div class="day-toggle" id="dayToggle" role="group" aria-label="Which day">
+      <button data-day="today" aria-pressed="true">Today</button>
+      <button data-day="tomorrow" aria-pressed="false">Tomorrow</button>
+    </div>
+
+    <p class="sub" id="label">TODAY · CENTRAL TIME</p>
     <h1 class="dateline" id="date"></h1>
 
-    <!-- The big "what to do tonight" card — filled from the static
-         schedule logic in app.js's plan() function, not from any live data. -->
+    <!--
+      "Do This First" — the single computed top priority (app.js's
+      computeTopPriority()), combining overdue tasks, anything you've
+      flagged "!!" as a priority, what's due today/tomorrow, a flagged
+      calendar event, and — only once none of those apply — tonight's
+      standing routine. This is deliberately the very first real content
+      on the page: one clear answer to "what do I actually need to do,"
+      with everything else below for context and browsing.
+    -->
+    <section class="hero-priority" id="topPriorityCard">
+      <div class="eyebrow"><span class="chip" id="topPriorityTag"></span></div>
+      <h2 id="topPriorityTitle"></h2>
+      <p id="topPriorityDetail"></p>
+    </section>
+
+    <!--
+      Monthly review banner — replaces the old standalone Monthly tab.
+      Shows just THIS period's active window compactly; the full five-
+      window list (and the quarterly/annual reference) is tucked behind
+      "See all review windows" for whenever you actually want to browse
+      it, rather than taking up a whole tab of its own.
+    -->
+    <div class="card status-card" id="monthlyBanner" style="margin-bottom:14px">
+      <h3><span class="dot ok"></span><span id="monthlyBannerLabel"></span></h3>
+      <p class="sub" id="monthlyBannerStep" style="margin:0"></p>
+      <details style="margin-top:10px">
+        <summary>See all review windows</summary>
+        <div id="windows" style="margin-top:10px"></div>
+        <p class="sub" style="margin:0 0 10px">Review windows, not bill or tax deadlines — pick one manageable next step in each.</p>
+        <details>
+          <summary>Quarterly &amp; annual reviews</summary>
+          <dl class="quarterly">
+            <dt>January · April · July · October</dt><dd>Deeper investment, emergency fund, insurance and home-maintenance review</dd>
+            <dt>January</dt><dd>Annual budget, savings and investment goals</dd>
+            <dt>March–April</dt><dd>Tax preparation — confirm actual deadlines separately</dd>
+            <dt>June–July</dt><dd>Mid-year financial review</dd>
+            <dt>October</dt><dd>Holiday spending plan</dd>
+            <dt>December</dt><dd>Year-end review, donations within budget, next year's goals</dd>
+          </dl>
+          <p class="sub" style="margin-top:10px">A quarterly or annual review replaces that month's related window rather than adding to it.</p>
+        </details>
+      </details>
+    </div>
+
+    <!-- The standing evening-routine card — filled from the static
+         schedule logic in app.js's plan() function, not from any live
+         data. Always shown as a reference even when "Do This First" above
+         is pointing at something more urgent, so you still know what
+         tonight's standing plan is. -->
     <section class="focus">
       <div class="eyebrow"><span id="origin"></span><span class="badge" id="duration"></span></div>
       <h2 id="action"></h2>
@@ -72,11 +136,12 @@
 
     <!--
       "Due today" card: pulled out of the Microsoft To Do data specifically
-      so tasks due today (or overdue) can't be missed — the full task list
-      further down stays tucked in a collapsed section since it's for
-      browsing everything, not for the one thing you must not forget.
-      app.js shows/hides this whole card and fills #dueTodayBody; it starts
-      hidden so there's no empty flash before JS has run.
+      so tasks due today (or overdue, or flagged "!!" priority) can't be
+      missed — the full task list further down stays tucked in a collapsed
+      section since it's for browsing everything, not for the one thing
+      you must not forget. app.js shows/hides this whole card and fills
+      #dueTodayBody; it starts hidden so there's no empty flash before JS
+      has run.
     -->
     <div class="card status-card" id="dueTodayCard" style="margin-bottom:14px" hidden>
       <h3><span class="dot" id="dueTodayDot"></span><span id="dueTodayTitle">Due today</span></h3>
@@ -100,11 +165,13 @@
     </details>
 
     <!-- Fixed weekday/weekend timeline — populated by app.js from a
-         hardcoded schedule, not from live data. -->
-    <div class="card" style="margin:14px 0">
-      <h3>Protect your time</h3>
+         hardcoded schedule, not from live data. Collapsed by default:
+         "Do This First" and the standing-routine card above already say
+         what to do; this is for when you want the full day laid out. -->
+    <details>
+      <summary>Full day schedule</summary>
       <ol class="timeline" id="timeline"></ol>
-    </div>
+    </details>
 
     <!-- Reference text only — nothing here is filled in by app.js; it's
          just written directly as a reminder of the standing weekly plan. -->
@@ -122,32 +189,11 @@
     </div>
   </div>
 
-  <!-- =============================== Monthly tab =========================== -->
-  <!-- Review windows — the five date ranges defined in app.js's `routines`
-       array. "hidden" is removed/added by app.js depending on the active tab. -->
-  <section id="month" hidden>
-    <p class="sub" style="margin:0 0 14px">Review windows, not bill or tax deadlines — pick one manageable next step in each.</p>
-    <div id="windows"></div>
-    <!-- Reference text only, same as "Your weekly rhythm" above — not
-         generated by app.js. -->
-    <details>
-      <summary>Quarterly &amp; annual reviews</summary>
-      <dl class="quarterly">
-        <dt>January · April · July · October</dt><dd>Deeper investment, emergency fund, insurance and home-maintenance review</dd>
-        <dt>January</dt><dd>Annual budget, savings and investment goals</dd>
-        <dt>March–April</dt><dd>Tax preparation — confirm actual deadlines separately</dd>
-        <dt>June–July</dt><dd>Mid-year financial review</dd>
-        <dt>October</dt><dd>Holiday spending plan</dd>
-        <dt>December</dt><dd>Year-end review, donations within budget, next year's goals</dd>
-      </dl>
-      <p class="sub" style="margin-top:10px">A quarterly or annual review replaces that month's related window rather than adding to it.</p>
-    </details>
-  </section>
-
   <!-- ================================ Money tab ============================= -->
   <!-- Cash-flow summary — entirely filled in by app.js's renderMoney(),
        sourced from YNAB via fetch_ynab.py. Deliberately shows no account
-       balances, just a last-30-days received/spent/net picture. -->
+       balances, just a last-30-days received/spent/net picture plus any
+       over-budget category alerts. -->
   <section id="money" hidden>
     <p class="sub" style="margin:0 0 14px">Cash flow only — no account balances. Check this when you need to, not as part of your evening routine.</p>
     <div class="card status-card">

@@ -39,8 +39,8 @@
  */
 
 // The month is split into five date ranges, each with its own "monthly
-// review" focus. Used by the Monthly tab, and to decide which one is
-// "active right now" based on today's date.
+// review" focus. Used by the monthly-review banner on the Plan tab, and
+// to decide which one is "active right now" based on today's date.
 // Each row is: [date range label, title, description, one-step prompt]
 const routines=[
   ['1st–3rd','Budget & cash flow','Review accounts, prior spending, card statements and automatic payments. Fund the budget and choose a savings goal after reserves.','Identify one upcoming expense and its budget category.'],
@@ -170,9 +170,16 @@ function money$(n){
 // document.getElementById('date') every time.
 const el=id=>document.getElementById(id);
 
-// Which tab is currently selected: 'today' | 'tomorrow' | 'month' | 'money'.
-// Changed by the nav button click handler near the bottom of this file.
-let view='today';
+// Which TOP-LEVEL tab is currently selected: 'plan' | 'money'. Changed by
+// the top nav's click handler near the bottom of this file.
+let view='plan';
+
+// Within the Plan tab, which DAY is currently selected: 'today' |
+// 'tomorrow'. This used to be what `view` itself tracked (back when Today
+// and Tomorrow were their own separate top-level tabs) — now it's a
+// smaller, independent toggle living inside the Plan tab. Changed by the
+// day-toggle's click handler near the bottom of this file.
+let day='today';
 
 // Returns "today" as a Date object, anchored to the Central time zone
 // (America/Chicago) regardless of what time zone the viewer's own device
@@ -352,51 +359,122 @@ function renderMoney(){
 
 
 /* ============================================================================
+ *  SECTION 4.5 — computeTopPriority(): the "Do This First" decision
+ * ============================================================================
+ *  The single most important function added in the October 2026 redesign.
+ *  Instead of making you scan five different cards to figure out what
+ *  actually needs doing, this picks ONE thing and hands it to render()
+ *  to show as the very first thing on the page.
+ *
+ *  It checks, in order (first match wins — this IS the priority order):
+ *    1. A task that's BOTH overdue AND flagged "!!" — the worst combination.
+ *    2. Any overdue task (even unflagged — a missed deadline outranks
+ *       everything except #1).
+ *    3. Any task you've flagged "!!" as a priority, whatever its due date.
+ *    4. A task due exactly on the day you're viewing (today/tomorrow).
+ *    5. A calendar event flagged "!!" for the day you're viewing.
+ *    6. Nothing more urgent found — fall back to tonight's standing
+ *       routine (the same plan() logic the card below it also shows).
+ *
+ *  Returns {tag, title, detail} — three short strings, nothing more. It
+ *  deliberately does NOT remove its pick from the lists shown further
+ *  down the page (Due Today, Calendar, Tasks) — seeing the same item
+ *  again there is fine; this card's job is just to say "start here."
+ */
+function computeTopPriority(dayKey, p){
+  const fallback={tag:'Tonight’s standing routine', title:p[0], detail:p[1]};
+  if(!liveData.todoConnected) return fallback;
+
+  // Flatten every To Do list into one array, same pattern as the Due
+  // Today card below — keeping which list each item came from, since
+  // that's useful context in the detail line.
+  const flat=[];
+  tasks.groups.forEach(g=>g.items.forEach(it=>flat.push({...it, list:g.list})));
+
+  const overdueFlagged=flat.find(it=>it.overdue && it.priority);
+  if(overdueFlagged) return {
+    tag:'Overdue & flagged',
+    title:overdueFlagged.text,
+    detail:overdueFlagged.list+(overdueFlagged.due?' · was due '+overdueFlagged.due:''),
+  };
+
+  const overdue=flat.find(it=>it.overdue);
+  if(overdue) return {
+    tag:'Overdue',
+    title:overdue.text,
+    detail:overdue.list+(overdue.due?' · was due '+overdue.due:''),
+  };
+
+  const flagged=flat.find(it=>it.priority);
+  if(flagged) return {
+    tag:'Flagged priority',
+    title:flagged.text,
+    detail:flagged.list+(flagged.due?' · due '+flagged.due:' · no due date'),
+  };
+
+  const dueNow=flat.find(it=>it.dueISO===dayKey);
+  if(dueNow) return {
+    tag: day==='tomorrow' ? 'Due tomorrow' : 'Due today',
+    title:dueNow.text,
+    detail:dueNow.list,
+  };
+
+  const dayEvents=liveData.items[dayKey]||[];
+  const flaggedEvent=dayEvents.find(it=>it.priority);
+  if(flaggedEvent) return {
+    tag:'Flagged on your calendar',
+    title:flaggedEvent.text,
+    detail:flaggedEvent.time||'All day',
+  };
+
+  return fallback;
+}
+
+
+/* ============================================================================
  *  SECTION 5 — Main render: builds whichever tab is currently selected
  * ============================================================================
  *  This is the biggest function in the file, because it's responsible for
- *  every tab (Today, Tomorrow, Monthly, Money). It's called once when the
- *  page first loads data.json, and again every time someone taps a nav
- *  button (see the click-handler near the bottom of this file).
+ *  both top-level tabs (Plan, Money) and, within Plan, both days (Today,
+ *  Tomorrow) and the monthly-review banner. It's called once when the page
+ *  first loads data.json, and again every time someone taps the top nav or
+ *  the Today/Tomorrow toggle (see the click-handlers near the bottom of
+ *  this file).
  *
  *  A quick map of what happens, in order:
- *    1. Figure out which tab is active, show/hide the right containers.
+ *    1. Figure out which top-level tab is active, show/hide containers.
  *    2. Always refresh the Money tab's content (cheap, keeps it current).
  *    3. If the Money tab is the active one, finish early — it doesn't need
- *       any of the "daily" content below.
- *    4. Fill in the big evening-focus card (from the static `plan()` logic).
- *    5. Set the top-right status pill to whichever data source is actually
+ *       any of the Plan-tab content below.
+ *    4. Compute and fill in "Do This First" (computeTopPriority() above).
+ *    5. Fill in the monthly-review banner (just the active window; the
+ *       full five-window list lives behind its own <details> disclosure).
+ *    6. Fill in the standing evening-routine card (the static `plan()`
+ *       logic) and the "Protect your time" timeline.
+ *    7. Set the top-right status pill to whichever data source is actually
  *       relevant for the active tab.
- *    6. Fill in the "Due today" card (Microsoft To Do items due today, or
- *       already overdue).
- *    7. Fill in the "Beyond your standing schedule" card (Google Calendar
- *       events for the day).
- *    8. Fill in the full "Open tasks" section (every open To Do item).
- *    9. If the Monthly tab is active, fill in its review-window list.
+ *    8. Fill in the "Due today/tomorrow" card.
+ *    9. Fill in the "Beyond your standing schedule" card (Calendar events).
+ *   10. Fill in the full "Open tasks" section (every open To Do item).
  */
 function render(){
-  const d=today();
-  if(view==='tomorrow') d.setUTCDate(d.getUTCDate()+1); // shift "today" forward one day
-
-  const monthly = view==='month';
   const moneyView = view==='money';
-  const daily = view==='today' || view==='tomorrow';
 
-  // Show/hide the three top-level containers to match the active tab.
-  el('daily').hidden=!daily;
-  el('month').hidden=!monthly;
+  // Show/hide the two top-level containers to match the active tab.
+  el('planView').hidden=moneyView;
   el('money').hidden=!moneyView;
-  // Keep the nav buttons' pressed/unpressed state (and thus their
+  // Keep the top nav buttons' pressed/unpressed state (and thus their
   // highlighting) in sync with the active tab, for accessibility as much
-  // as styling — aria-pressed is what a screen reader announces.
+  // as styling — aria-pressed is what a screen reader announces. Same
+  // pattern for the Today/Tomorrow toggle just below.
   document.querySelectorAll('[data-view]').forEach(b=>b.setAttribute('aria-pressed',String(view===b.dataset.view)));
+  document.querySelectorAll('[data-day]').forEach(b=>b.setAttribute('aria-pressed',String(day===b.dataset.day)));
 
   renderMoney(); // independent of which tab is showing; cheap, keeps state current if viewer switches
 
   // The top-right pill always reflects whichever data source the current
-  // tab actually depends on — Calendar on Today/Tomorrow, YNAB on Money,
-  // nothing live on Monthly — rather than always showing Calendar status
-  // regardless of what's on screen.
+  // tab actually depends on — Calendar on Plan, YNAB on Money — rather
+  // than always showing Calendar status regardless of what's on screen.
   if(moneyView){
     const moneyHasData=!!(money.last30.income||money.last30.spent||money.thisMonth.budgeted);
     el('connStatus').textContent = moneyHasData ? 'YNAB live · '+money.asOf : 'Not connected';
@@ -404,13 +482,20 @@ function render(){
     return; // Money tab is fully handled by renderMoney() above — nothing more to do
   }
 
-  // ---- Everything below this line only runs for Today / Tomorrow / Monthly ----
+  // ---- Everything below this line is the Plan tab ----
+
+  // `d` is whichever day the toggle has selected, as an actual Date; a
+  // SEPARATE `realToday` always stays the actual current date, because
+  // the monthly-review banner further down is about where we are in the
+  // calendar month right now, not which day you happen to be previewing.
+  const d=today();
+  if(day==='tomorrow') d.setUTCDate(d.getUTCDate()+1); // shift "today" forward one day
+  const realToday=today();
 
   el('date').textContent = new Intl.DateTimeFormat('en-US', {
-    timeZone:'UTC',
-    ...(monthly ? {month:'long',year:'numeric'} : {weekday:'long',month:'short',day:'numeric'}),
+    timeZone:'UTC', weekday:'long', month:'short', day:'numeric',
   }).format(d);
-  el('label').textContent = monthly ? 'YOUR MONTHLY GUIDE' : view.toUpperCase()+' · CENTRAL TIME';
+  el('label').textContent = day.toUpperCase()+' · CENTRAL TIME';
 
   // Fill in the big "tonight's focus" card from the static plan() logic.
   const p=plan(d);
@@ -421,9 +506,49 @@ function render(){
   el('alternative').textContent=p[4];
   el('origin').textContent=p[5];
 
-  // The "Protect your time" timeline card — a fixed weekday-vs-weekend
+  // "YYYY-MM-DD" for whichever day is on screen — used both to look up
+  // today's/tomorrow's calendar events (liveData.items is keyed by this)
+  // and to match To Do items whose due date equals this day. Computed
+  // here (before the "Do This First" card below) because
+  // computeTopPriority() needs it too.
+  const key=d.toISOString().slice(0,10);
+
+  // ---- "Do This First" — see computeTopPriority() above for the logic ----
+  const topPriority=computeTopPriority(key,p);
+  el('topPriorityTag').textContent=topPriority.tag;
+  el('topPriorityTitle').textContent=topPriority.title;
+  el('topPriorityDetail').textContent=topPriority.detail;
+
+  // ---- Monthly-review banner (replaces the old standalone Monthly tab) ----
+  // Deliberately keyed off `realToday`, not `d` — which review window is
+  // "active" is a fact about today's real date, and shouldn't change just
+  // because you tapped over to preview Tomorrow.
+  const activeWindowIndex=windowIndex(realToday.getUTCDate());
+  const activeWindow=routines[activeWindowIndex];
+  el('monthlyBannerLabel').textContent=`This period (${activeWindow[0]}): ${activeWindow[1]}`;
+  el('monthlyBannerStep').textContent=activeWindow[3];
+  // The full five-window list, inside the "See all review windows"
+  // disclosure — same markup as the old Monthly tab used, just living in
+  // a <details> instead of its own tab.
+  el('windows').replaceChildren(...routines.map((r,i)=>{
+    const article=document.createElement('article');
+    article.className='window'+(i===activeWindowIndex?' active':'');
+    const dateLabel=document.createElement('b');
+    const body=document.createElement('div');
+    const title=document.createElement('h4');
+    const desc=document.createElement('p');
+    dateLabel.textContent=r[0]; title.textContent=r[1]; desc.textContent=r[2];
+    body.append(title,desc);
+    article.append(dateLabel,body);
+    return article;
+  }));
+
+  // The "Full day schedule" timeline — a fixed weekday-vs-weekend
   // schedule, with tonight's evening-routine action (p[0]) slotted into
-  // the 8 p.m. row on weekdays.
+  // the 8 p.m. row on weekdays. Lives behind a <details> now (see
+  // index.html) since "Do This First" and the standing-routine card
+  // above already say what to do — this is for when you want the whole
+  // day laid out.
   const weekday=d.getUTCDay();
   const rows = (weekday>0 && weekday<6)
     ? [['7–3:30','Work + 45-min commute each way'],['4:30–7:45','Baby care, dinner & shower'],['8 p.m.',p[0]],['9 p.m.','Time with Claudia'],['9:30 p.m.','Bed']]
@@ -435,12 +560,10 @@ function render(){
     return li;
   }));
 
-  // Status pill: "Standing routine" on Monthly (nothing live backs that
-  // tab), otherwise reflects whether Google Calendar is actually connected.
-  if(monthly){
-    el('connStatus').textContent='Standing routine';
-    el('connStatus').className='pill';
-  } else if(liveData.calendarConnected){
+  // Status pill reflects whether Google Calendar is actually connected —
+  // the only live source the Plan tab's cards depend on directly (the
+  // standing routine and monthly banner above are static, no live source).
+  if(liveData.calendarConnected){
     el('connStatus').textContent='Calendar live · '+liveData.asOf;
     el('connStatus').className='pill live';
   } else {
@@ -448,10 +571,6 @@ function render(){
     el('connStatus').className='pill';
   }
 
-  // "YYYY-MM-DD" for whichever day is on screen — used both to look up
-  // today's/tomorrow's calendar events (liveData.items is keyed by this)
-  // and to match To Do items whose due date equals this day.
-  const key=d.toISOString().slice(0,10);
   const items=liveData.items[key];
   // Small reusable snippet appended to the Calendar card whenever To Do
   // isn't connected, so that fact surfaces in context rather than only on
@@ -470,7 +589,7 @@ function render(){
   // belongs here regardless of its due date, since marking it that way
   // IS the point: it's important enough that you don't want to have to
   // go looking for it in the full task list below.
-  if(!monthly && !moneyView){
+  {
     const dueCard=el('dueTodayCard');
     if(!liveData.todoConnected){
       // Nothing to show yet — the full "Open tasks" section below already
@@ -494,12 +613,12 @@ function render(){
       dueItems.sort((a,b)=>(a.overdue!==b.overdue) ? (a.overdue?-1:1) : (a.priority!==b.priority) ? (a.priority?-1:1) : 0);
 
       dueCard.hidden=false;
-      el('dueTodayTitle').textContent = view==='tomorrow' ? 'Due tomorrow' : 'Due today';
+      el('dueTodayTitle').textContent = day==='tomorrow' ? 'Due tomorrow' : 'Due today';
       el('dueTodayDot').className = dueItems.some(it=>it.overdue) ? 'dot warn' : 'dot ok';
 
       if(!dueItems.length){
         el('dueTodayBody').innerHTML =
-          '<p style="margin:0;font-size:.88rem">Nothing due '+(view==='tomorrow'?'tomorrow':'today')+' — you\'re clear.</p>';
+          '<p style="margin:0;font-size:.88rem">Nothing due '+(day==='tomorrow'?'tomorrow':'today')+' — you\'re clear.</p>';
       } else {
         const list=document.createElement('ul');
         list.style.margin='0'; list.style.paddingLeft='18px'; list.style.fontSize='.88rem';
@@ -529,7 +648,7 @@ function render(){
   }
 
   // ---- "Beyond your standing schedule" card (Google Calendar events) ----
-  if(!monthly){
+  {
     if(!liveData.calendarConnected){
       el('calDot').className='dot';
       el('liveBody').innerHTML=`<p style="margin:0;font-size:.88rem">Google Calendar isn't connected to this dashboard yet, so no live appointments are shown here — showing a made-up agenda would be worse than showing none.</p>
@@ -563,7 +682,7 @@ function render(){
   }
 
   // ---- Full "Open tasks (To Do)" section — every open item, grouped by list ----
-  if(!monthly){
+  {
     // Distinguish "not connected yet" from "connected, and genuinely
     // nothing open" so an empty list doesn't quietly read as a working
     // connection when it might not be one.
@@ -598,22 +717,6 @@ function render(){
       el('taskBody').replaceChildren(wrap, note);
     }
   }
-
-  // ---- Monthly tab: list of the five review windows, highlighting the active one ----
-  if(monthly){
-    el('windows').replaceChildren(...routines.map((r,i)=>{
-      const article=document.createElement('article');
-      article.className='window'+(i===windowIndex(d.getUTCDate())?' active':'');
-      const dateLabel=document.createElement('b');
-      const body=document.createElement('div');
-      const title=document.createElement('h4');
-      const desc=document.createElement('p');
-      dateLabel.textContent=r[0]; title.textContent=r[1]; desc.textContent=r[2];
-      body.append(title,desc);
-      article.append(dateLabel,body);
-      return article;
-    }));
-  }
 }
 
 
@@ -622,11 +725,18 @@ function render(){
  * ============================================================================
  */
 
-// Every nav button (Today/Tomorrow/Monthly/Money) carries its target tab
-// name in a data-view="..." attribute (see index.html). Clicking one just
-// updates the `view` variable and re-renders — no page navigation happens.
+// The top nav (Plan/Money) carries its target tab name in a
+// data-view="..." attribute (see index.html). Clicking one just updates
+// the `view` variable and re-renders — no page navigation happens.
 document.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',()=>{
   view=b.dataset.view;
+  render();
+}));
+
+// The Today/Tomorrow toggle inside the Plan tab works the same way, just
+// with its own `day` variable and data-day="..." attribute.
+document.querySelectorAll('[data-day]').forEach(b=>b.addEventListener('click',()=>{
+  day=b.dataset.day;
   render();
 }));
 

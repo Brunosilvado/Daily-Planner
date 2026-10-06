@@ -5,10 +5,10 @@ purpose — see "Why the link isn't in this file" below).
 
 ## What this actually is, in plain terms
 
-This repo runs your "Daily Compass" dashboard — the Today / Tomorrow /
-Monthly / Money page you and Claudia check on your phones. It used to live
-as a Claude artifact, which only updated when you asked Claude to refresh
-it and only worked while your computer was on. This version fixes both:
+This repo runs your "Daily Compass" dashboard — the Plan / Money page you
+and Claudia check on your phones. It used to live as a Claude artifact,
+which only updated when you asked Claude to refresh it and only worked
+while your computer was on. This version fixes both:
 
 - **It's hosted for free** on GitHub Pages (GitHub's free website hosting).
 - **It refreshes itself automatically**, six times a day, using GitHub
@@ -41,6 +41,31 @@ running, or if something ever needs fixing.
 - **Pages** — GitHub's free website hosting. What turns this repo into an
   actual web page with a URL.
 - **Deploy** — publishing the latest version of the page so phones see it.
+
+## How the dashboard is laid out (October 2026 redesign)
+
+Down to two tabs now — **Plan** and **Money** — instead of the original
+four, after feedback that too many separate tabs made it easy to miss
+things. Inside Plan:
+
+1. **Do This First** — the dashboard computes ONE top-priority thing for
+   you, combining overdue tasks, anything flagged "!!" as a priority,
+   what's due today, a flagged calendar event, and tonight's standing
+   routine — in that order of urgency. Whatever wins leads the page.
+2. **A Today/Tomorrow toggle** — a small switch, not a separate tab,
+   since it's just "which day," not a different section.
+3. **This period's monthly-review window** — a compact one-line banner
+   (what used to be a whole separate Monthly tab), with "See all review
+   windows" to expand the full five-window list when you actually want
+   to browse it.
+4. Everything else from before — the standing routine, Due Today,
+   Calendar, full task list, day schedule, weekly rhythm — still there,
+   just reordered so the most time-sensitive things come first and pure
+   reference material (weekly rhythm, full day schedule) is tucked into
+   collapsed sections.
+
+See "Flagging something as a priority" below for how the "!!" marker
+feeding into Do This First actually works.
 
 ## Why the link isn't in this file
 

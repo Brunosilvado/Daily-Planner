@@ -1,11 +1,14 @@
 /* ============================================================================
  * Daily Compass — stylesheet
  * ============================================================================
- * Layout: single-column stacked cards, phone-first; a 4-tab switcher drives
- * one primary focus card. This file is pure appearance — it never contains
- * any of Bruno/Claudia's actual data; app.js only ever sets a handful of
- * className/style values that pick between rules already defined here
- * (e.g. toggling between .dot and .dot.warn).
+ * Layout: single-column stacked cards, phone-first. Two top-level tabs
+ * (Plan / Money) plus a lighter Today/Tomorrow toggle inside Plan — see
+ * index.html's redesign comment for why it's down from four tabs. A
+ * computed "Do This First" hero card (.hero-priority) leads the Plan tab,
+ * ahead of everything else. This file is pure appearance — it never
+ * contains any of Bruno/Claudia's actual data; app.js only ever sets a
+ * handful of className/style values that pick between rules already
+ * defined here (e.g. toggling between .dot and .dot.warn).
  *
  * Color scheme: every actual color value lives in the --variable-name
  * definitions in the three blocks right below (light mode, OS-driven dark
@@ -65,7 +68,7 @@ header{display:flex;align-items:center;justify-content:space-between;gap:12px;pa
 .pill{font-size:.72rem;font-weight:600;letter-spacing:.03em;padding:5px 10px;border-radius:999px;background:var(--idle-soft);color:var(--idle);white-space:nowrap}
 .pill.live{background:var(--accent-soft);color:var(--accent-ink)}
 
-/* ---- Tab switcher (Today / Tomorrow / Monthly / Money) ---- */
+/* ---- Top-level tab switcher (Plan / Money) ---- */
 nav{display:flex;gap:4px;background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:5px;margin-bottom:18px}
 nav button{flex:1;font:inherit;font-size:.86rem;font-weight:600;border:0;background:none;color:var(--ink-soft);padding:10px 6px;min-height:42px;border-radius:10px;cursor:pointer}
 /* app.js sets aria-pressed="true" on whichever button matches the active
@@ -73,11 +76,33 @@ nav button{flex:1;font:inherit;font-size:.86rem;font-weight:600;border:0;backgro
 nav button[aria-pressed="true"]{background:var(--focus-bg);color:var(--focus-ink)}
 nav button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
+/* ---- Today/Tomorrow toggle, inside the Plan tab ---- */
+/* Deliberately smaller and lighter than the top-level nav above — this is
+   "which day," a much lower-stakes choice than "which section of the
+   dashboard," so it shouldn't visually compete with the top nav. Same
+   aria-pressed pattern as the top nav drives the active/inactive look. */
+.day-toggle{display:inline-flex;gap:3px;background:var(--idle-soft);border-radius:999px;padding:3px;margin-bottom:14px}
+.day-toggle button{font:inherit;font-size:.8rem;font-weight:600;border:0;background:none;color:var(--ink-soft);padding:7px 16px;border-radius:999px;cursor:pointer}
+.day-toggle button[aria-pressed="true"]{background:var(--paper);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.day-toggle button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
 /* ---- Date heading above the main focus card ---- */
 .dateline{font-family:var(--font-display);font-size:clamp(1.5rem,6vw,1.9rem);letter-spacing:-.02em;margin:0 0 2px}
 .sub{font-size:.82rem;color:var(--ink-soft);margin:0 0 18px} /* small muted caption text, reused all over */
 
-/* ---- The big "tonight's focus" card (dark, high-contrast) ---- */
+/* ---- "Do This First" hero card — the computed top priority, leading the
+   whole Plan tab. Uses the accent color (not the dark .focus palette just
+   below) specifically so it reads as a DIFFERENT kind of card at a
+   glance: .focus is "your standing plan, every day"; this is "the one
+   thing that's actually most urgent right now," which might just be that
+   same standing plan restated (see computeTopPriority()'s fallback) or
+   might be something more pressing that bumped it. ---- */
+.hero-priority{background:var(--accent-soft);border:1px solid var(--accent);border-radius:20px;padding:22px;margin-bottom:14px}
+.hero-priority .chip{display:inline-block;font-size:.72rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--accent-ink);background:var(--paper);padding:5px 11px;border-radius:999px}
+.hero-priority h2{font-family:var(--font-display);font-size:clamp(1.4rem,6vw,1.7rem);line-height:1.22;margin:12px 0 6px;letter-spacing:-.015em;color:var(--ink)}
+.hero-priority p{margin:0;color:var(--ink-soft);font-size:.92rem}
+
+/* ---- The big "tonight's standing routine" card (dark, high-contrast) ---- */
 section.focus{background:var(--focus-bg);color:var(--focus-ink);border-radius:20px;padding:24px 22px;margin-bottom:14px}
 .focus .eyebrow{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:.72rem;font-weight:700;letter-spacing:.08em;color:var(--focus-soft);text-transform:uppercase}
 .focus .eyebrow .badge{background:rgba(255,255,255,.12);padding:4px 10px;border-radius:999px;font-weight:600;letter-spacing:.02em;text-transform:none}
@@ -164,7 +189,7 @@ details{border-top:1px solid var(--line);margin-top:8px}
 summary{padding:16px 2px;font-weight:650;font-size:.9rem;cursor:pointer;min-height:24px}
 summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
-/* ---- Monthly tab: review-window list, with the currently-active one highlighted ---- */
+/* ---- Monthly-review banner (Plan tab): the "see all windows" list, with the currently-active one highlighted ---- */
 .window{display:grid;grid-template-columns:88px 1fr;gap:16px;padding:16px 2px;border-bottom:1px solid var(--line)}
 .window:last-child{border-bottom:0}
 .window b{font-size:.78rem;color:var(--ink-soft);padding-top:2px}
@@ -174,7 +199,7 @@ summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .window.active{background:var(--accent-soft);border-radius:14px;padding:16px 14px;border-bottom:0}
 .window.active b{color:var(--accent-ink)}
 
-/* ---- Monthly tab: quarterly/annual review reference list (static text, no JS) ---- */
+/* ---- Monthly-review banner: quarterly/annual review reference list (static text, no JS) ---- */
 dl.quarterly{margin:0}
 dl.quarterly dt{font-weight:650;font-size:.86rem;margin-top:10px}
 dl.quarterly dd{margin:2px 0 0;color:var(--ink-soft);font-size:.84rem}
