@@ -16,6 +16,18 @@ Development") — those are recurring routines you already see elsewhere on
 the dashboard, so repeating them here would just be noise. Everything else
 that's still open shows up, with its due date and whether it's overdue.
 
+Priority flagging:
+  Type "!!" at the start of a task's title in Microsoft To Do itself
+  (e.g. "!! Call bank") and the dashboard treats it as a priority item —
+  the "!!" is stripped before display, so you'd just see "Call bank"
+  with a star next to it. Same convention as fetch_calendar.py's
+  priority flag, kept identical on purpose so you only have to remember
+  one trick, not a different one per app. It's a title convention rather
+  than a real field for the same reason as the calendar side: this
+  project only ever reads from To Do (see Security notes), so the title
+  is the only place to put a signal both To Do's own app and this
+  dashboard can see.
+
 Security notes:
   - Requests only the delegated "Tasks.Read" scope (read-only) plus
     "offline_access" (needed to get a refresh token at all) — this code
@@ -46,6 +58,21 @@ TIMEOUT_SECONDS = 15
 # Standing routine checklists shown elsewhere on the dashboard already —
 # excluded here so they don't show up twice.
 EXCLUDED_LISTS = {"Household Routines", "Trading Development"}
+
+# See "Priority flagging" above — identical convention to
+# fetch_calendar.py's PRIORITY_PREFIX/_strip_priority, duplicated here
+# rather than shared, in keeping with this project's existing pattern of
+# each fetch_*.py file standing fully on its own (see build_data.py's
+# _safe_fetch isolation comment for why that independence matters).
+PRIORITY_PREFIX = "!!"
+
+
+def _strip_priority(title):
+    """Returns (display_title, is_priority) — see fetch_calendar.py's
+    identical helper for the full explanation."""
+    if title.startswith(PRIORITY_PREFIX):
+        return title[len(PRIORITY_PREFIX):].lstrip(), True
+    return title, False
 
 try:
     from zoneinfo import ZoneInfo
@@ -193,15 +220,19 @@ def get_tasks_data():
         items = []
         for task in open_tasks:
             due_label, due_iso, overdue = _due_date(task, today)
+            text, priority = _strip_priority(task.get("title") or "(untitled)")
             items.append({
-                "text": task.get("title") or "(untitled)",
+                "text": text,
                 "due": due_label,
                 "dueISO": due_iso,
                 "overdue": overdue,
+                "priority": priority,
             })
-        # Overdue first, then by presence of a due date, keeping Graph's
-        # own ordering within each group otherwise.
-        items.sort(key=lambda it: (not it["overdue"], it["due"] is None))
+        # Overdue first, then priority-flagged, then by presence of a due
+        # date, keeping Graph's own ordering within each group otherwise.
+        # (An overdue AND priority task sorts first either way — "not
+        # overdue" is False there, which is the smallest/first value.)
+        items.sort(key=lambda it: (not it["overdue"], not it["priority"], it["due"] is None))
         groups.append({"list": name, "items": items})
 
     now_label = datetime.datetime.now(CENTRAL).strftime("%b %-d, %Y · %-I:%M %p Central")

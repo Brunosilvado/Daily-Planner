@@ -61,6 +61,22 @@ stored as a repo secret (`PAGES_SLUG`), not written in any file here.
   and Microsoft To Do are all live. Every section shows real data now —
   nothing here is faked or placeholder.
 
+## Flagging something as a priority
+
+Type **`!!`** at the very start of an event's title in Google Calendar,
+or a task's title in Microsoft To Do (e.g. `!! NC meeting` or `!! Call
+bank`). The dashboard strips the `!!` before showing it, and marks it
+with a ★ instead — and for tasks, pulls it into the always-visible "Due
+today/tomorrow" card near the top of the page even if it isn't due yet,
+so it can't get lost in the full task list further down.
+
+This is just a typing convention, not a real checkbox or flag field —
+on purpose. The dashboard only ever *reads* your Calendar and To Do (see
+Security notes below for why that matters), so it has no way to write a
+"starred" marker back onto an event or task even if it wanted to. The
+title is the one thing both apps and this dashboard can already see, so
+that's where the signal lives.
+
 ## If a connection ever needs refreshing
 
 Each connection runs on a long-lived token minted once through a
@@ -156,6 +172,18 @@ small residual exposure window, no new credentials or rework needed.
   (`robots.txt` plus a `noindex` tag on every page), and the deployment
   status API GitHub itself exposes was checked by hand and only ever
   reveals the harmless root URL, never the secret slug.
+
+### One small, deliberate exception: YNAB category names
+
+By request, the Money tab now names any budget category that's over
+budget this month (e.g. "Groceries — $40 over"), so the dashboard can
+actually tell you *which* category needs attention, not just whether
+the month overall looks fine. That's a bit more specific than the
+cash-flow-only totals everything else here shows — still no account
+balances or individual transactions, just a category name you chose
+yourself plus how far over it is. Worth knowing if "no specifics beyond
+totals" mattered to you; see `scripts/fetch_ynab.py`'s own notes for the
+full reasoning.
 
 ## If something looks broken
 

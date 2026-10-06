@@ -42,6 +42,7 @@ DEFAULT_MONEY = {
     "thisMonth": {"label": "", "budgeted": 0},
     "lastMonth": {"label": "", "income": 0, "spent": 0},
     "expectedMonthlyIncome": 0,
+    "overBudgetCategories": [],
     "note": "YNAB isn't connected yet.",
 }
 

@@ -17,6 +17,17 @@ Uses a refresh token minted once via Google's OAuth consent screen
 Until all are set, this returns None and the dashboard shows its honest
 "Calendar isn't connected yet" state.
 
+Priority flagging:
+  Type "!!" at the start of an event's title in Google Calendar itself
+  (e.g. "!! NC meeting") and the dashboard treats it as a priority item —
+  the "!!" is stripped before display, so you'd just see "NC meeting"
+  with a star next to it. This is deliberately just a title convention
+  rather than a real flag/field, because this project only ever reads
+  from Google Calendar (see Security notes) — it can't write a proper
+  "starred" marker back to the event, so the title itself is the only
+  place to put a signal that both Google Calendar's own app and this
+  dashboard can see.
+
 Security notes:
   - Requests only the read-only Calendar scope
     (https://www.googleapis.com/auth/calendar.readonly) — this code
@@ -32,6 +43,21 @@ import datetime
 import json
 import os
 import sys
+
+# See "Priority flagging" above. Checked case-sensitively and only at the
+# very start of the title, so an event about, say, "Using !! in emails"
+# doesn't accidentally get flagged.
+PRIORITY_PREFIX = "!!"
+
+
+def _strip_priority(title):
+    """Returns (display_title, is_priority). Strips a leading "!!" (and
+    any space right after it) from an event/task title, so the marker
+    never shows up in what actually gets displayed — only the star icon
+    app.js adds for a priority item does."""
+    if title.startswith(PRIORITY_PREFIX):
+        return title[len(PRIORITY_PREFIX):].lstrip(), True
+    return title, False
 
 import requests
 
@@ -180,15 +206,21 @@ def get_calendar_data():
             if event_date not in items:
                 skipped_outside_window += 1
                 continue  # outside today/tomorrow (shouldn't happen given timeMin/timeMax, but safe)
-            summary = event.get("summary", "(no title)")
+            summary, priority = _strip_priority(event.get("summary", "(no title)"))
             text = f"{label} — {summary}"
             # sortKey is thrown away right below, once it's done its job of
             # ordering each day's events by start time (all-day events sort
             # first, since "" sorts before any "H:MM AM/PM" string).
-            items[event_date].append({"time": time_range, "sortKey": time_range or "", "text": text})
+            items[event_date].append({
+                "time": time_range, "sortKey": time_range or "", "text": text, "priority": priority,
+            })
 
     for date_key in items:
-        items[date_key].sort(key=lambda it: it["sortKey"])
+        # Priority items float to the top of their day, keeping each
+        # group's own time-order otherwise — same two-key pattern as
+        # fetch_todo.py's "overdue first" sort, just with "priority"
+        # instead of "overdue" as the thing that jumps the queue.
+        items[date_key].sort(key=lambda it: (not it["priority"], it["sortKey"]))
         for it in items[date_key]:
             del it["sortKey"]
 

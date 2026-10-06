@@ -45,6 +45,13 @@ Security notes:
     vs. expected-income check. No account or card balances, and no
     individual transaction detail is ever written to data.json — per the
     project's privacy rule, that would need a further explicit ask.
+  - One deliberate exception to "no account/category specifics," added by
+    request: the NAME of any category that's over budget this month (and
+    by how much), so the dashboard can actually warn "Groceries is $40
+    over" rather than just a vague overall number. This is a bit more
+    specific than everything else YNAB sends to this dashboard — still no
+    transaction detail, but a real category name is now in data.json
+    (see README.md's Security notes).
 """
 import os
 import sys
@@ -105,6 +112,59 @@ def _rolling_30_day_flow(budget_id, token, today):
     return _money_from_milli(income_milli), _money_from_milli(spent_milli)
 
 
+# Category groups to leave out of the overspending alert entirely — not
+# because they're hidden from YNAB itself, but because a "negative
+# balance" in either of these doesn't mean the same thing as ordinary
+# overspending:
+#   - "Credit Card Payments": YNAB auto-tracks what you owe here as you
+#     spend on the card, so its balance moves for reasons that have
+#     nothing to do with this month's budgeting decisions.
+#   - "Internal Master Category": YNAB's own bookkeeping category (things
+#     like "Uncategorized"), not a real spending category you budgeted.
+EXCLUDED_CATEGORY_GROUPS = {"Credit Card Payments", "Internal Master Category"}
+
+
+def _overspent_categories(budget_id, token, max_results=5):
+    """Returns up to `max_results` categories that are over budget this
+    month, worst first, as [{"category": name, "over": amount}, ...] —
+    or [] once nothing is over.
+
+    A category's "balance" going negative is YNAB's own definition of
+    overspent: you've spent more in it this month than you'd budgeted,
+    and (unless covered from somewhere else before the month closes)
+    that shortfall rolls into eating next month's budget for the same
+    category. Each entry's "category" name is real budget data (not a
+    secret, but more specific than anything else this dashboard already
+    shows), so this is deliberately scoped to the category *name* and
+    *how far over* only — never which transactions caused it.
+
+    Uses /budgets/{id}/categories (grouped by category_group, with each
+    category's budgeted/activity/balance already reflecting the CURRENT
+    budget month per YNAB's own API behavior) rather than the plain
+    /months/current/categories list, specifically because this is the
+    shape that actually tells us each category's group name — needed to
+    apply EXCLUDED_CATEGORY_GROUPS above."""
+    groups = _get(f"/budgets/{budget_id}/categories", token)["category_groups"]
+    overspent = []
+    for group in groups:
+        if group.get("hidden") or group.get("deleted"):
+            continue
+        group_name = group.get("name") or ""
+        if group_name in EXCLUDED_CATEGORY_GROUPS:
+            continue
+        for cat in group.get("categories", []):
+            if cat.get("hidden") or cat.get("deleted"):
+                continue
+            balance_milli = cat.get("balance", 0)
+            if balance_milli < 0:
+                overspent.append({
+                    "category": cat.get("name") or "(unnamed category)",
+                    "over": _money_from_milli(-balance_milli),
+                })
+    overspent.sort(key=lambda c: c["over"], reverse=True)
+    return overspent[:max_results]
+
+
 def get_money_data():
     # .strip(): GitHub's secret textarea (or a clipboard manager) can pick
     # up a trailing newline/space on paste, which would otherwise silently
@@ -160,11 +220,20 @@ def get_money_data():
         "%b %-d, %Y · %-I:%M %p Central"
     )
 
+    over_budget = _overspent_categories(budget_id, token)
+    # Safe to log: just a count. The category NAMES themselves do go into
+    # data.json below (that's the whole point of the alert — "which
+    # category" is the useful part), but never into this log, and never
+    # any transaction detail behind the number.
+    print(f"[fetch_ynab] {len(over_budget)} categor(y/ies) over budget this month",
+          file=sys.stderr)
+
     return {
         "asOf": now_central,
         "last30": {"income": last30_income, "spent": last30_spent},
         "thisMonth": {"label": this_month_label, "budgeted": this_budgeted},
         "lastMonth": {"label": last_label, "income": last_income, "spent": last_spent},
         "expectedMonthlyIncome": round(expected_income, 2),
+        "overBudgetCategories": over_budget,
         "note": "From YNAB directly. Card purchases that don’t auto-sync into YNAB may understate spending.",
     }

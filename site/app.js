@@ -147,7 +147,7 @@ function plan(d){
  */
 
 let liveData={calendarConnected:false, todoConnected:false, asOf:'', items:{}};
-let money={asOf:'', last30:{income:0, spent:0}, thisMonth:{label:'', budgeted:0}, lastMonth:{label:'', income:0, spent:0}, expectedMonthlyIncome:0, note:''};
+let money={asOf:'', last30:{income:0, spent:0}, thisMonth:{label:'', budgeted:0}, lastMonth:{label:'', income:0, spent:0}, expectedMonthlyIncome:0, overBudgetCategories:[], note:''};
 let tasks={asOf:'', groups:[]};
 let generatedAt=null; // when data.json was last regenerated, filled in once it loads
 
@@ -213,11 +213,16 @@ function renderMoney(){
   const budgeted = money.thisMonth.budgeted || 0;
   const expected = money.expectedMonthlyIncome || 0;
   const overBudgeted = hasData && expected>0 && budgeted>expected;
+  // Default to [] here too (not just in Section 2's initial `money`
+  // value) so a stale cached data.json from before this field existed
+  // can't crash this function on a slow-to-refresh device.
+  const overCategories = money.overBudgetCategories || [];
 
-  // Signal dot: green while the last 30 days of real cash flow is positive
-  // and this month's budgeted amount hasn't outrun expected income; amber
-  // the moment either tips negative; idle/grey if there's nothing yet.
-  el('moneyDot').className = 'dot' + (!hasData ? '' : (last30Net<0||overBudgeted ? ' warn' : ' ok'));
+  // Signal dot: green while the last 30 days of real cash flow is positive,
+  // this month's budgeted amount hasn't outrun expected income, AND no
+  // individual category has overspent; amber the moment any of those
+  // tips the wrong way; idle/grey if there's nothing yet.
+  el('moneyDot').className = 'dot' + (!hasData ? '' : (last30Net<0||overBudgeted||overCategories.length ? ' warn' : ' ok'));
 
   // Small local helper: turns a list of [label, value, cssClass] triples
   // into a <div> full of label/value rows, matching the .stat-row style
@@ -281,16 +286,46 @@ function renderMoney(){
       bodyWrap.appendChild(barWrap);
     }
 
-    // One plain-English sentence summarizing the overall state, covering
-    // all four combinations of (cash flow negative?) x (over-budgeted?).
+    // Per-category overspending alert — this is the "which category"
+    // detail the overall budget bar above can't show, since a month can
+    // be comfortably under its total budget while one specific category
+    // (groceries, say) has still run over. Only appears once there's
+    // actually something to flag.
+    if(overCategories.length){
+      const alertWrap=document.createElement('div'); alertWrap.className='over-budget-alert';
+      const heading=document.createElement('b'); heading.style.color='var(--warn)';
+      heading.textContent='Over budget this month:';
+      alertWrap.appendChild(heading);
+      const ul=document.createElement('ul');
+      ul.style.margin='4px 0 0'; ul.style.paddingLeft='18px'; ul.style.fontSize='.88rem';
+      overCategories.forEach(c=>{
+        const li=document.createElement('li');
+        // textContent, not innerHTML: c.category is a real YNAB category
+        // name you typed yourself, but it's still outside data this file
+        // controls — same discipline as calendar/task text elsewhere, so
+        // a category literally named with HTML in it still can't do
+        // anything to the page.
+        li.textContent=c.category+' — '+money$(c.over)+' over';
+        ul.appendChild(li);
+      });
+      alertWrap.appendChild(ul);
+      bodyWrap.appendChild(alertWrap);
+    }
+
+    // One plain-English sentence summarizing the overall state. The
+    // per-category alert above already covers "which category," so this
+    // sentence sticks to the two whole-month signals (cash flow,
+    // budgeted-vs-expected) and just adds a short nudge toward the alert
+    // list when a category is over too, rather than repeating it.
     let statusLine='';
     if(last30Net<0 && overBudgeted) statusLine='Spending has passed income over the last 30 days, and this month’s budgeted more than you expect to earn.';
     else if(last30Net<0) statusLine='Spending has passed income over the last 30 days.';
     else if(overBudgeted) statusLine='This month’s budgeted more than the expected income.';
     else statusLine='Income is covering spending, and this month’s budget is within expected income.';
+    if(overCategories.length) statusLine+=' See the over-budget categories above.';
     const status=document.createElement('p');
     status.className='sub'; status.style.margin='12px 0 0'; status.style.fontWeight='600';
-    status.style.color=(last30Net<0||overBudgeted)?'var(--warn)':'var(--ink-soft)';
+    status.style.color=(last30Net<0||overBudgeted||overCategories.length)?'var(--warn)':'var(--ink-soft)';
     status.textContent=statusLine;
     bodyWrap.appendChild(status);
   }
@@ -428,9 +463,13 @@ function render(){
   // The whole point is that these can't get missed, so they get their own
   // always-visible card near the top of the page instead of living only
   // inside the collapsed "Open tasks" section further down. Scoped to
-  // whichever day is on screen (today or tomorrow) PLUS anything already
-  // overdue: an overdue task is relevant no matter which day you're
-  // looking at, since by definition it needed attention before now.
+  // whichever day is on screen (today or tomorrow), PLUS anything already
+  // overdue (relevant no matter which day you're looking at, since by
+  // definition it needed attention before now), PLUS anything you've
+  // flagged "!!" as a priority (see fetch_todo.py) — a flagged item
+  // belongs here regardless of its due date, since marking it that way
+  // IS the point: it's important enough that you don't want to have to
+  // go looking for it in the full task list below.
   if(!monthly && !moneyView){
     const dueCard=el('dueTodayCard');
     if(!liveData.todoConnected){
@@ -440,17 +479,19 @@ function render(){
       dueCard.hidden=true;
     } else {
       // Flatten every group's items into one list, keeping only the ones
-      // that are either overdue (any date) or due exactly on `key`.
+      // that are overdue (any date), due exactly on `key`, or flagged.
       const dueItems=[];
       tasks.groups.forEach(g=>{
         g.items.forEach(it=>{
-          if(it.overdue || it.dueISO===key) dueItems.push({...it, list:g.list});
+          if(it.overdue || it.dueISO===key || it.priority) dueItems.push({...it, list:g.list});
         });
       });
-      // Overdue items first, so the most urgent thing is always the first
-      // line a glance lands on. (a.overdue===b.overdue -> 0 keeps their
-      // relative order unchanged; otherwise overdue sorts before not.)
-      dueItems.sort((a,b)=>(a.overdue===b.overdue)?0:(a.overdue?-1:1));
+      // Most-urgent-first: overdue beats everything, then a priority
+      // flag, then keep whatever order they arrived in otherwise. Both
+      // comparisons are the same "false sorts before true" trick: when
+      // a and b tie on overdue, the tie is broken by priority; when they
+      // tie on both, 0 leaves their relative order alone.
+      dueItems.sort((a,b)=>(a.overdue!==b.overdue) ? (a.overdue?-1:1) : (a.priority!==b.priority) ? (a.priority?-1:1) : 0);
 
       dueCard.hidden=false;
       el('dueTodayTitle').textContent = view==='tomorrow' ? 'Due tomorrow' : 'Due today';
@@ -464,14 +505,22 @@ function render(){
         list.style.margin='0'; list.style.paddingLeft='18px'; list.style.fontSize='.88rem';
         dueItems.forEach(it=>{
           const li=document.createElement('li'); li.style.marginBottom='4px';
-          if(it.overdue) li.className='overdue';
+          // Both classes can apply at once (an overdue, flagged item is
+          // both red AND bold) — see .overdue/.priority in style.css.
+          li.className=[it.overdue?'overdue':'',it.priority?'priority':''].filter(Boolean).join(' ');
+          // Was this pulled in only because it's flagged, with no due
+          // date today/tomorrow and not overdue? Say so explicitly,
+          // since otherwise a flagged-but-not-due item showing up here
+          // with no due-date text at all would look unexplained.
+          const onlyBecauseFlagged = it.priority && !it.overdue && it.dueISO!==key;
           // textContent, not innerHTML: it.text and it.list come from
           // Microsoft To Do, so they're treated as plain text, never
           // markup, the same way the full task list below does it. This
           // matters even though we trust the data source: it means a task
           // or list NAMED something that looks like HTML can never change
           // how the page itself behaves.
-          li.textContent=it.text+' — '+it.list+(it.overdue?' (overdue)':'');
+          li.textContent=(it.priority?'★ ':'')+it.text+' — '+it.list
+            +(it.overdue?' (overdue)':onlyBecauseFlagged?' (flagged priority)':'');
           list.appendChild(li);
         });
         el('dueTodayBody').replaceChildren(list);
@@ -501,7 +550,11 @@ function render(){
       list.style.margin='0'; list.style.paddingLeft='18px'; list.style.fontSize='.88rem';
       items.forEach(it=>{
         const li=document.createElement('li'); li.style.marginBottom='4px';
-        li.textContent=(it.time?it.time+' — ':'')+it.text; // textContent: see the note above about why
+        // it.priority: a "!!"-flagged event (see fetch_calendar.py) —
+        // already sorted to the front of today's/tomorrow's list by
+        // that same file, this just adds the visual marker here.
+        if(it.priority) li.className='priority';
+        li.textContent=(it.priority?'★ ':'')+(it.time?it.time+' — ':'')+it.text; // textContent: see the note above about why
         list.appendChild(li);
       });
       el('liveBody').replaceChildren(list);
@@ -528,10 +581,12 @@ function render(){
         const div=document.createElement('div'); div.className='taskgroup';
         const heading=document.createElement('b'); heading.textContent=g.list;
         const ul=document.createElement('ul');
+        // Already sorted overdue-then-flagged-then-rest by fetch_todo.py
+        // — this loop just renders that order with the right visual marks.
         g.items.forEach(it=>{
           const li=document.createElement('li');
-          if(it.overdue) li.className='overdue';
-          li.textContent=it.text+(it.due?' (due '+it.due+')':'')+(it.overdue?' — overdue':'');
+          li.className=[it.overdue?'overdue':'',it.priority?'priority':''].filter(Boolean).join(' ');
+          li.textContent=(it.priority?'★ ':'')+it.text+(it.due?' (due '+it.due+')':'')+(it.overdue?' — overdue':'');
           ul.appendChild(li);
         });
         div.append(heading,ul);

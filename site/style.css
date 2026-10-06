@@ -136,6 +136,9 @@ ol.timeline time{color:var(--ink-soft);font-variant-numeric:tabular-nums;font-si
 .budget-bar-fill{height:100%;border-radius:999px;background:var(--accent);transition:width .2s}
 .budget-bar-fill.warn{background:var(--warn)}
 
+/* ---- Money tab: per-category overspending alert ---- */
+.over-budget-alert{margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--warn-soft)}
+
 /* ---- Grouped task lists (the full "Open tasks" section) ---- */
 .taskgroup{margin:0 0 12px}
 .taskgroup:last-child{margin-bottom:0}
@@ -145,6 +148,12 @@ ol.timeline time{color:var(--ink-soft);font-variant-numeric:tabular-nums;font-si
 /* Shared by task list items AND the "Due today" card — an item marked
    overdue gets this treatment wherever it appears. */
 .overdue{color:var(--warn);font-weight:600}
+/* A "!!"-flagged item (see fetch_calendar.py/fetch_todo.py's "Priority
+   flagging" notes) — the ★ itself is added in app.js, this just gives the
+   whole line a bit of weight so a flagged item doesn't only depend on a
+   tiny star to stand out. Works together with .overdue when an item is
+   both (CSS lets both classes' rules apply at once). */
+.priority{font-weight:600}
 
 /* ---- Bottom quick-links row ("Open Microsoft To Do" / "Open Google Calendar") ---- */
 .links{display:flex;gap:10px;flex-wrap:wrap;margin:18px 0 4px}
