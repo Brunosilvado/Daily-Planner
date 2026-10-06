@@ -123,20 +123,23 @@ def _fetch_open_tasks(access_token, list_id):
 
 
 def _due_date(task, today):
-    """Returns (label, overdue) for a task's due date, or (None, False)
-    if it has none. Graph returns dueDateTime as a naive date/time in the
-    given timeZone (often UTC) — since To Do due dates are really just
-    calendar dates (no meaningful time-of-day), we read the date part only
-    rather than converting clock time across zones."""
+    """Returns (label, iso_date, overdue) for a task's due date, or
+    (None, None, False) if it has none. Graph returns dueDateTime as a
+    naive date/time in the given timeZone (often UTC) — since To Do due
+    dates are really just calendar dates (no meaningful time-of-day), we
+    read the date part only rather than converting clock time across
+    zones. iso_date (plain "YYYY-MM-DD") is for the dashboard's own code
+    to compare dates against exactly — label is for display only and
+    deliberately not machine-parseable (e.g. "Oct 5"), so both are sent."""
     due_raw = task.get("dueDateTime")
     if not due_raw or not due_raw.get("dateTime"):
-        return None, False
+        return None, None, False
     try:
         due_date = datetime.date.fromisoformat(due_raw["dateTime"][:10])
     except ValueError:
-        return None, False
+        return None, None, False
     overdue = due_date < today
-    return due_date.strftime("%b %-d"), overdue
+    return due_date.strftime("%b %-d"), due_date.isoformat(), overdue
 
 
 def get_tasks_data():
@@ -182,10 +185,11 @@ def get_tasks_data():
 
         items = []
         for task in open_tasks:
-            due_label, overdue = _due_date(task, today)
+            due_label, due_iso, overdue = _due_date(task, today)
             items.append({
                 "text": task.get("title") or "(untitled)",
                 "due": due_label,
+                "dueISO": due_iso,
                 "overdue": overdue,
             })
         # Overdue first, then by presence of a due date, keeping Graph's

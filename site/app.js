@@ -178,6 +178,54 @@ function render(){
   const key=d.toISOString().slice(0,10);
   const items=liveData.items[key];
   const todoNote=liveData.todoConnected?'':`<div class="howto" style="margin-top:10px">Microsoft To&nbsp;Do isn't connected yet, so task highlights aren't shown here.</div>`;
+
+  // "Due today" card — the whole point is that these can't get missed, so
+  // they get their own always-visible card near the top of the page
+  // instead of living only inside the collapsed "Open tasks" section
+  // further down. Scoped to whichever day is on screen (today or
+  // tomorrow) PLUS anything already overdue: an overdue task is relevant
+  // no matter which day you're looking at, since by definition it needed
+  // attention before now.
+  if(!monthly && !moneyView){
+    const dueCard=el('dueTodayCard');
+    if(!liveData.todoConnected){
+      // Nothing to show yet — the full "Open tasks" section below already
+      // explains the not-connected state, so this card just stays hidden
+      // rather than repeating that message a second time.
+      dueCard.hidden=true;
+    } else {
+      const dueItems=[];
+      tasks.groups.forEach(g=>{
+        g.items.forEach(it=>{
+          if(it.overdue || it.dueISO===key) dueItems.push({...it, list:g.list});
+        });
+      });
+      // Overdue items first, so the most urgent thing is always the first
+      // line a glance lands on.
+      dueItems.sort((a,b)=>(a.overdue===b.overdue)?0:(a.overdue?-1:1));
+
+      dueCard.hidden=false;
+      el('dueTodayTitle').textContent=view==='tomorrow'?'Due tomorrow':'Due today';
+      el('dueTodayDot').className=dueItems.some(it=>it.overdue)?'dot warn':'dot ok';
+
+      if(!dueItems.length){
+        el('dueTodayBody').innerHTML='<p style="margin:0;font-size:.88rem">Nothing due '+(view==='tomorrow'?'tomorrow':'today')+' — you\'re clear.</p>';
+      } else {
+        const list=document.createElement('ul'); list.style.margin='0'; list.style.paddingLeft='18px'; list.style.fontSize='.88rem';
+        dueItems.forEach(it=>{
+          const li=document.createElement('li'); li.style.marginBottom='4px';
+          if(it.overdue) li.className='overdue';
+          // textContent, not innerHTML: it.text and it.list come from
+          // Microsoft To Do, so they're treated as plain text, never
+          // markup, the same way the full task list below does it.
+          li.textContent=it.text+' — '+it.list+(it.overdue?' (overdue)':'');
+          list.appendChild(li);
+        });
+        el('dueTodayBody').replaceChildren(list);
+      }
+    }
+  }
+
   if(!monthly){
     if(!liveData.calendarConnected){
       el('calDot').className='dot';

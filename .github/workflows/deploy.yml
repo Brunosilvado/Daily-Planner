@@ -65,6 +65,17 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
+          # Security note: this build artifact (containing the real slug
+          # AND the live personal data.json) is listed under this repo's
+          # Actions tab and is downloadable by any signed-in GitHub user —
+          # this repo being public means that's effectively "anyone with a
+          # free account," not just people who already know the dashboard
+          # URL. 1 day is GitHub's shortest allowed retention; it bounds
+          # the exposure window but doesn't eliminate it, since a fresh
+          # artifact replaces the old one on every run (6x/day). See the
+          # "Security notes" section in README.md for the fuller picture
+          # and the remaining mitigation that would close this properly.
+          retention-days: 1
 
       - id: deployment
         uses: actions/deploy-pages@v4

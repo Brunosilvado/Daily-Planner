@@ -32,6 +32,20 @@ def main():
             "PAGES_SLUG secret is missing or not alphanumeric. "
             "Set it under Settings -> Secrets and variables -> Actions."
         )
+    # A warning, not a hard failure: raising SystemExit here would break the
+    # live dashboard the moment this deploys, for anyone whose slug predates
+    # this check. The slug is this dashboard's main protection against a
+    # stranger finding it (see README.md's Security notes), so length and
+    # randomness matter — recommended minimum is 20 characters from a real
+    # random generator, not a word, name or short code.
+    RECOMMENDED_MIN_SLUG_LENGTH = 20
+    if len(slug) < RECOMMENDED_MIN_SLUG_LENGTH:
+        print(
+            f"[build_site] WARNING: PAGES_SLUG is only {len(slug)} characters. "
+            f"{RECOMMENDED_MIN_SLUG_LENGTH}+ random characters is recommended "
+            f"— see README.md's Security notes for how to generate and rotate it.",
+            file=sys.stderr,
+        )
 
     if os.path.isdir(OUT):
         shutil.rmtree(OUT)
@@ -44,6 +58,16 @@ def main():
             "<meta name=\"robots\" content=\"noindex, nofollow\">"
             "<title>Not found</title></head><body><p>Nothing here.</p></body></html>\n"
         )
+
+    # Belt-and-suspenders alongside the per-page noindex meta tags: a
+    # robots.txt is the first thing a well-behaved crawler checks, before
+    # it even requests a page, so this keeps the whole site (slug path
+    # included) out of search engines even if a crawler somehow found a
+    # link to it. This does nothing against a crawler that ignores
+    # robots.txt, or a human who already has the URL — it's one more layer,
+    # not a substitute for keeping the slug itself private.
+    with open(os.path.join(OUT, "robots.txt"), "w") as f:
+        f.write("User-agent: *\nDisallow: /\n")
 
     dest = os.path.join(OUT, slug)
     os.makedirs(dest)

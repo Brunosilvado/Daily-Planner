@@ -41,6 +41,19 @@
       </div>
     </div>
 
+    <!--
+      "Due today" card: pulled out of the Microsoft To Do data specifically
+      so tasks due today (or overdue) can't be missed — the full task list
+      further down stays tucked in a collapsed section since it's for
+      browsing everything, not for the one thing you must not forget.
+      app.js shows/hides this whole card and fills #dueTodayBody; it starts
+      hidden so there's no empty flash before JS has run.
+    -->
+    <div class="card status-card" id="dueTodayCard" style="margin-bottom:14px" hidden>
+      <h3><span class="dot" id="dueTodayDot"></span><span id="dueTodayTitle">Due today</span></h3>
+      <div id="dueTodayBody"></div>
+    </div>
+
     <div class="card status-card" style="margin-bottom:14px">
       <h3><span class="dot" id="calDot"></span>Beyond your standing schedule</h3>
       <div id="liveBody"></div>
