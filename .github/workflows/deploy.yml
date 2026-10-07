@@ -58,6 +58,10 @@ jobs:
           GOOGLE_CALENDAR_IDS: ${{ secrets.GOOGLE_CALENDAR_IDS }}
           MS_GRAPH_CLIENT_ID: ${{ secrets.MS_GRAPH_CLIENT_ID }}
           MS_GRAPH_REFRESH_TOKEN: ${{ secrets.MS_GRAPH_REFRESH_TOKEN }}
+          # Optional — see scripts/notify.py. Leaving this secret unset is
+          # fully supported; the daily push-notification digest just
+          # doesn't send, with no effect on the dashboard build itself.
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
         run: python scripts/build_site.py
 
       - uses: actions/configure-pages@v5

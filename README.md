@@ -102,6 +102,65 @@ Security notes below for why that matters), so it has no way to write a
 title is the one thing both apps and this dashboard can already see, so
 that's where the signal lives.
 
+## Getting a push notification instead of opening the dashboard
+
+By request, there's now an optional daily push notification — a short
+"what needs your attention today" summary sent straight to your phone,
+once a day around 6am Central, so you don't have to remember to open the
+dashboard to find out something's due. It uses **ntfy.sh**, a free,
+no-signup push-notification service (no new paid account, and it's just
+one more step inside the same GitHub Actions robot that already runs
+this project).
+
+**This is off by default** — nothing changes about the dashboard until
+you do the one-time setup below, and if you skip it, everything else
+keeps working exactly as before.
+
+### One-time setup (your phone)
+
+1. Install the **ntfy** app — free on
+   [iOS](https://apps.apple.com/us/app/ntfy/id1625396347) and
+   [Android](https://play.google.com/store/apps/details?id=io.heckel.ntfy).
+2. In the app, subscribe to a topic — pick a long, random, made-up name
+   (think of it like a password; anyone who knows it can read your
+   notifications). Something like `bruno-compass-7f2k9x4m2p` works well.
+   Don't use a short or guessable word.
+3. In this repo's GitHub settings (Settings → Secrets and variables →
+   Actions → New repository secret), add a secret named `NTFY_TOPIC`
+   with that exact topic name as the value.
+
+That's it — the next ~6am-Central run will send the first digest. No
+code changes, no restart needed.
+
+### What you'll get, and when
+
+Once a day, on the run closest to 6am Central (chosen as the earliest of
+this project's three daily send-times, so it's useful before the day
+starts rather than after) — **not conditional**, it sends every day even
+if there's nothing urgent, just so the absence of a notification is
+never something you have to interpret. The message lists, in order:
+anything overdue, anything flagged `!!` as a priority (see "Flagging
+something as a priority" above), any flagged calendar event for today,
+and anything plain due today — or "you're clear" if none of those apply.
+
+*(I picked 6am-Central and "always send" myself since you said no strong
+preference either way — just ask Claude if you'd rather it send at a
+different time, or only on days something's actually due.)*
+
+### The trade-off, honestly
+
+ntfy.sh is a third-party service Anthropic/this project don't control —
+unlike YNAB/Google/Microsoft, your task/event names pass through ntfy's
+own servers to relay the push. ntfy is open-source and widely used for
+exactly this, but it is a real (if small) trade-off for getting an
+actual phone notification, which nothing already in this project could
+do on its own. Full reasoning and the rest of the security notes live in
+`scripts/notify.py`'s own comments.
+
+If this ever feels like more exposure than it's worth, just delete the
+`NTFY_TOPIC` secret — the dashboard itself is completely unaffected
+either way.
+
 ## If a connection ever needs refreshing
 
 Each connection runs on a long-lived token minted once through a

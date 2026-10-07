@@ -23,6 +23,7 @@ OUT = os.path.join(ROOT, "_site")
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from build_data import build as build_data  # noqa: E402
+from notify import maybe_send_digest  # noqa: E402
 
 
 def main():
@@ -96,6 +97,13 @@ def main():
     data = build_data()
     with open(os.path.join(dest, "data.json"), "w") as f:
         json.dump(data, f, indent=2)
+
+    # Push-notification digest — see notify.py for the full picture. Runs
+    # AFTER data.json is written (not before), and reuses this same
+    # `data` dict rather than re-fetching anything, so this can never be
+    # the reason a dashboard refresh is slower or less reliable. No-ops
+    # entirely unless the optional NTFY_TOPIC secret is set.
+    maybe_send_digest(data)
 
     print(f"Built _site/ with dashboard at _site/<slug>/ (slug length {len(slug)}).")
 
