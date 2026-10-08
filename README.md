@@ -122,12 +122,17 @@ keeps working exactly as before.
    [iOS](https://apps.apple.com/us/app/ntfy/id1625396347) and
    [Android](https://play.google.com/store/apps/details?id=io.heckel.ntfy).
 2. In the app, subscribe to a topic — pick a long, random, made-up name
-   (think of it like a password; anyone who knows it can read your
-   notifications). Something like `bruno-compass-7f2k9x4m2p` works well.
-   Don't use a short or guessable word.
+   of your own (think of it like a password; anyone who knows it can
+   read your notifications). **Never reuse any example string shown in
+   this README, in a chat, or anywhere public** — once a value has been
+   written down anywhere, treat it as no longer private and pick a
+   different one. The ntfy app itself can generate a random topic name
+   for you if you'd rather not make one up.
 3. In this repo's GitHub settings (Settings → Secrets and variables →
    Actions → New repository secret), add a secret named `NTFY_TOPIC`
-   with that exact topic name as the value.
+   with that exact topic name as the value — copy/paste it rather than
+   retyping, since topic names are case-sensitive and a stray space or
+   typo will make the digest silently never arrive.
 
 That's it — the next ~6am-Central run will send the first digest. No
 code changes, no restart needed.
