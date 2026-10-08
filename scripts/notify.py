@@ -167,5 +167,20 @@ def maybe_send_digest(data):
         # actual task/event text that went into the notification body.
         print(f"[notify] digest sent ({len(lines)} line(s))", file=sys.stderr)
     except Exception as exc:  # noqa: BLE001 - deliberate: a failed notification must never break the build
-        print(f"[notify] send failed ({type(exc).__name__}) — dashboard build continues normally",
-              file=sys.stderr)
+        # Safe to log: an HTTP status code and a response body's first 200
+        # characters from ntfy.sh's own error message are not secrets (they
+        # never echo back the topic name or digest text on an error) — this
+        # extra detail is what actually lets a failure get diagnosed instead
+        # of just "something went wrong."
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        body_snippet = ""
+        if getattr(exc, "response", None) is not None:
+            try:
+                body_snippet = exc.response.text[:200]
+            except Exception:  # pragma: no cover - defensive only
+                pass
+        print(
+            f"[notify] send failed ({type(exc).__name__}, status={status}) "
+            f"body={body_snippet!r} — dashboard build continues normally",
+            file=sys.stderr,
+        )
