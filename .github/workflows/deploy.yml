@@ -1,7 +1,12 @@
 name: Build and deploy dashboard
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      force_notify:
+        description: "Send the push-notification digest right now, ignoring the usual ~6am-Central-only timing (for testing NTFY_TOPIC). Leave unchecked for a normal manual run."
+        type: boolean
+        default: false
   push:
     branches: [main]
     paths:
@@ -62,6 +67,11 @@ jobs:
           # fully supported; the daily push-notification digest just
           # doesn't send, with no effect on the dashboard build itself.
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          # Only set (to "true") when someone manually runs this workflow
+          # with the "force_notify" checkbox ticked — see notify.py. Every
+          # scheduled/push-triggered run leaves this unset, so the normal
+          # once-a-day-at-6am-Central behavior is never affected.
+          FORCE_NTFY_SEND: ${{ inputs.force_notify && 'true' || '' }}
         run: python scripts/build_site.py
 
       - uses: actions/configure-pages@v5

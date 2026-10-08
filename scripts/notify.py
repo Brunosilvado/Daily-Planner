@@ -26,6 +26,13 @@ converted correctly across both CST and CDT so it stays "once a day" all
 year without a manual DST fix). Every other run of the day computes
 nothing extra and sends nothing — this module is a no-op on those runs.
 
+Testing it on demand: the Actions tab's "Run workflow" button (manual
+workflow_dispatch) has a "force_notify" checkbox. Ticking it sets the
+FORCE_NTFY_SEND env var for that one run only, which skips the
+hour-of-day check below — useful for confirming NTFY_TOPIC actually
+reaches your phone without waiting for 6am Central. A normal scheduled
+run never sets this, so the once-a-day timing is never affected by it.
+
 WHAT it sends: a short digest built from the SAME data already computed
 for the dashboard this run (see build_site.py — this is called with the
 same `data` dict that becomes data.json, so nothing is fetched twice):
@@ -132,13 +139,16 @@ def maybe_send_digest(data):
         return  # not configured — silently skip, same pattern as every other optional source
 
     now_central = datetime.datetime.now(CENTRAL)
-    if now_central.hour != NOTIFY_HOUR_CENTRAL:
-        return  # not the once-a-day run — nothing to do
+    forced = (os.environ.get("FORCE_NTFY_SEND") or "").strip().lower() == "true"
+    if now_central.hour != NOTIFY_HOUR_CENTRAL and not forced:
+        return  # not the once-a-day run, and nobody asked for a test send
 
     today_key = now_central.date().isoformat()
     lines = _build_digest_lines(data, today_key)
     message = "\n".join(lines)
     date_label = now_central.strftime("%a, %b %-d")
+    if forced:
+        message = "(Test send — triggered manually)\n" + message
 
     try:
         resp = requests.post(
