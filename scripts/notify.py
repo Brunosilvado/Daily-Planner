@@ -52,6 +52,17 @@ Security notes:
     everything inside GitHub Actions + your own accounts, in exchange
     for an actual phone push notification, which nothing already in
     this project can do on its own.
+  - Tap-to-open: the notification carries a "click" link straight to
+    the dashboard (so tapping it opens the page instead of just
+    showing the digest text). That means the dashboard's secret slug
+    — the one thing standing between this public repo and a stranger
+    finding the live page — ALSO now passes through ntfy.sh's servers
+    on every send, not just task/event names. Same trust model as the
+    topic name: ntfy.sh could see it, same as it already sees the
+    digest content. If that's more exposure than the tap-to-open
+    convenience is worth, the fix is to drop the "click" field below
+    (or unset NTFY_TOPIC entirely) — either way nothing else here
+    changes.
   - The topic name is a shared secret, same trust model as this
     dashboard's PAGES_SLUG: anyone who learns it can read your
     notifications (and, since ntfy's free tier doesn't restrict
@@ -129,11 +140,16 @@ def _build_digest_lines(data, today_key):
     return lines
 
 
-def maybe_send_digest(data):
+def maybe_send_digest(data, dashboard_url=None):
     """Call this once per build, after `data` (the same dict build_site.py
     writes to data.json) is ready. Does nothing unless NTFY_TOPIC is set
     AND this happens to be the ~6am-Central run — see the module
-    docstring for both of those conditions."""
+    docstring for both of those conditions.
+
+    dashboard_url, if given, becomes the notification's tap-to-open
+    link — see the module docstring's "Tap-to-open" security note for
+    what that trades off. Pass None (the default) to leave the
+    notification as plain text with no click-through."""
     topic = (os.environ.get("NTFY_TOPIC") or "").strip()
     if not topic or not CENTRAL:
         return  # not configured — silently skip, same pattern as every other optional source
@@ -159,15 +175,22 @@ def maybe_send_digest(data):
         # reports it as a parse failure rather than a field-specific one.
         NTFY_PRIORITY_URGENT = 4  # "high" — shown with a red bar, bypasses some DND
         NTFY_PRIORITY_DEFAULT = 3  # normal priority, no special treatment
+        payload = {
+            "topic": topic,
+            "title": f"Daily Compass — {date_label}",
+            "message": message,
+            "priority": NTFY_PRIORITY_URGENT if (lines and lines[0].startswith("⚠")) else NTFY_PRIORITY_DEFAULT,
+            "tags": ["compass"],
+        }
+        # Tap-to-open — see the module docstring's "Tap-to-open" security
+        # note. Only added when build_site.py could work out the dashboard's
+        # URL (it always can inside GitHub Actions; omitted entirely for a
+        # local test run, which just means no click-through there).
+        if dashboard_url:
+            payload["click"] = dashboard_url
         resp = requests.post(
             NTFY_PUBLISH_URL,
-            json={
-                "topic": topic,
-                "title": f"Daily Compass — {date_label}",
-                "message": message,
-                "priority": NTFY_PRIORITY_URGENT if (lines and lines[0].startswith("⚠")) else NTFY_PRIORITY_DEFAULT,
-                "tags": ["compass"],
-            },
+            json=payload,
             timeout=TIMEOUT_SECONDS,
         )
         resp.raise_for_status()

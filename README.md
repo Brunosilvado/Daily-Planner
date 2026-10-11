@@ -147,6 +147,8 @@ never something you have to interpret. The message lists, in order:
 anything overdue, anything flagged `!!` as a priority (see "Flagging
 something as a priority" above), any flagged calendar event for today,
 and anything plain due today — or "you're clear" if none of those apply.
+**Tapping the notification opens the dashboard directly**, so you can
+jump straight from "here's what's up" to the full page when you want more.
 
 *(I picked 6am-Central and "always send" myself since you said no strong
 preference either way — just ask Claude if you'd rather it send at a
@@ -159,8 +161,17 @@ unlike YNAB/Google/Microsoft, your task/event names pass through ntfy's
 own servers to relay the push. ntfy is open-source and widely used for
 exactly this, but it is a real (if small) trade-off for getting an
 actual phone notification, which nothing already in this project could
-do on its own. Full reasoning and the rest of the security notes live in
-`scripts/notify.py`'s own comments.
+do on its own.
+
+Tap-to-open adds one more wrinkle: the dashboard link **(including your
+secret slug)** now also passes through ntfy.sh's servers on every send,
+the same way the digest text already does — not just the task/event
+names anymore. Same trust model as the topic itself; nothing about the
+slug's protection against random internet traffic changes, just who
+else briefly sees it in transit. If that's not worth the tap-to-open
+convenience, say so and it can come back out — the digest will still
+send, just as plain text with nothing to tap. Full reasoning and the
+rest of the security notes live in `scripts/notify.py`'s own comments.
 
 If this ever feels like more exposure than it's worth, just delete the
 `NTFY_TOPIC` secret — the dashboard itself is completely unaffected

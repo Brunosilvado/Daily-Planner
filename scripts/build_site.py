@@ -103,7 +103,20 @@ def main():
     # `data` dict rather than re-fetching anything, so this can never be
     # the reason a dashboard refresh is slower or less reliable. No-ops
     # entirely unless the optional NTFY_TOPIC secret is set.
-    maybe_send_digest(data)
+    #
+    # GITHUB_REPOSITORY is an env var GitHub Actions sets automatically
+    # (e.g. "Brunosilvado/daily-planner") — not a secret, just where this
+    # workflow happens to be running. Combined with the slug already in
+    # hand, it lets the notification carry a tap-to-open dashboard link
+    # without ever needing to know or print the real domain separately.
+    # Locally (no GITHUB_REPOSITORY), dashboard_url stays None and the
+    # notification just has no click-through, same as before this feature.
+    repo = os.environ.get("GITHUB_REPOSITORY", "")
+    dashboard_url = None
+    if "/" in repo:
+        owner, repo_name = repo.split("/", 1)
+        dashboard_url = f"https://{owner.lower()}.github.io/{repo_name}/{slug}/"
+    maybe_send_digest(data, dashboard_url)
 
     print(f"Built _site/ with dashboard at _site/<slug>/ (slug length {len(slug)}).")
 
