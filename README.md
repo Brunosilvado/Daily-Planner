@@ -139,16 +139,23 @@ code changes, no restart needed.
 
 ### What you'll get, and when
 
-Once a day, on the run closest to 6am Central (chosen as the earliest of
-this project's three daily send-times, so it's useful before the day
-starts rather than after) — **not conditional**, it sends every day even
-if there's nothing urgent, just so the absence of a notification is
-never something you have to interpret. The message lists, in order:
-anything overdue, anything flagged `!!` as a priority (see "Flagging
-something as a priority" above), any flagged calendar event for today,
-and anything plain due today — or "you're clear" if none of those apply.
-**Tapping the notification opens the dashboard directly**, so you can
-jump straight from "here's what's up" to the full page when you want more.
+Once a day — the first run that happens at or after 5am Central, not
+necessarily the one "scheduled" for 6am. GitHub's free scheduler is
+explicitly best-effort and can run a scheduled job hours late (its own
+docs flag the top of the hour as the most delay-prone moment, which is
+exactly why this project's six daily run times were shifted off :00).
+Rather than depend on hitting one exact minute, the build keeps a tiny
+note of which day it last sent a digest, so whichever of the six daily
+runs turns out to be the first one after 5am that day is the one that
+sends — even if it's running late. **Not conditional on anything being
+due** — it sends every day even if there's nothing urgent, just so the
+absence of a notification is never something you have to interpret.
+The message lists, in order: anything overdue, anything flagged `!!`
+as a priority (see "Flagging something as a priority" above), any
+flagged calendar event for today, and anything plain due today — or
+"you're clear" if none of those apply. **Tapping the notification opens
+the dashboard directly**, so you can jump straight from "here's what's
+up" to the full page when you want more.
 
 *(I picked 6am-Central and "always send" myself since you said no strong
 preference either way — just ask Claude if you'd rather it send at a

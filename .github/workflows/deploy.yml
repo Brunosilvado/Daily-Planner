@@ -17,17 +17,36 @@ on:
     # Six runs/day, spanning both UTC-6 (CST) and UTC-5 (CDT) equivalents
     # of 6am / 3pm / 8pm Central, so the dashboard stays fresh without
     # needing a twice-yearly manual DST edit.
-    - cron: "0 11 * * *"
-    - cron: "0 12 * * *"
-    - cron: "0 20 * * *"
-    - cron: "0 21 * * *"
-    - cron: "0 1 * * *"
-    - cron: "0 2 * * *"
+    #
+    # Minute 17, not 0: GitHub's own docs say scheduled workflows are
+    # most likely to be delayed right at the top of the hour, when the
+    # most other repos' cron jobs are also trying to fire. Every run
+    # that landed near 6am Central before this change was actually a
+    # badly-delayed firing of one of these six slots — up to ~5 hours
+    # late — because they were all queued at minute 0. This alone won't
+    # guarantee on-time delivery (GitHub never promises exact timing for
+    # the free schedule trigger), which is why notify.py also no longer
+    # depends on hitting one exact hour — see its own comments.
+    - cron: "17 11 * * *"
+    - cron: "17 12 * * *"
+    - cron: "17 20 * * *"
+    - cron: "17 21 * * *"
+    - cron: "17 1 * * *"
+    - cron: "17 2 * * *"
 
 permissions:
   contents: read
   pages: write
   id-token: write
+  # Lets notify.py read/write ONE small, non-secret repository variable
+  # (NOTIFY_LAST_SENT_DATE — just a date string like "2026-10-11") via
+  # GitHub's API, so it can tell "have we already sent today's digest"
+  # even when a scheduled run lands at an unpredictable time. This is
+  # the GITHUB_TOKEN GitHub already mints fresh for every run and
+  # revokes when the job ends — not a new credential — scoped to just
+  # this repo's Actions variables, nothing else. See notify.py's own
+  # comments for the full reasoning.
+  actions: write
 
 concurrency:
   group: pages
@@ -70,8 +89,13 @@ jobs:
           # Only set (to "true") when someone manually runs this workflow
           # with the "force_notify" checkbox ticked — see notify.py. Every
           # scheduled/push-triggered run leaves this unset, so the normal
-          # once-a-day-at-6am-Central behavior is never affected.
+          # once-a-day behavior is never affected.
           FORCE_NTFY_SEND: ${{ inputs.force_notify && 'true' || '' }}
+          # Lets notify.py read/write the NOTIFY_LAST_SENT_DATE repository
+          # variable (see the "actions: write" permission comment above).
+          # This is GitHub's own short-lived per-run token, not a new
+          # secret — never printed, never written to any file.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python scripts/build_site.py
 
       - uses: actions/configure-pages@v5

@@ -19,19 +19,40 @@ Required GitHub Secret:
                digest, just silently skipped, the same "not connected
                yet" pattern as every other optional integration here.
 
-WHEN this sends: only once a day, on the ~6am-Central run (this project
-already runs 6x/day — see .github/workflows/deploy.yml's comment on why
-those six times — and this picks out just the one closest to 6am Central,
-converted correctly across both CST and CDT so it stays "once a day" all
-year without a manual DST fix). Every other run of the day computes
-nothing extra and sends nothing — this module is a no-op on those runs.
+WHEN this sends: once a day, on the FIRST run of the day (Central time)
+that happens at or after 5am AND hasn't already sent today's digest —
+not "the run that happens to land at exactly 6am." That distinction
+matters: GitHub's schedule trigger is explicitly best-effort and can be
+delayed, especially right at the top of the hour (every one of this
+project's six daily cron times used to be minute 0 — see deploy.yml's
+comment on why they're now minute 17 instead). An earlier version of
+this script required an EXACT hour match, and on its first real day in
+production, every one of that day's six scheduled runs landed 1-5 hours
+late and missed the window entirely — the digest silently never sent.
+
+To survive that without double-sending on the (by-design) two
+early-morning cron slots that cover both CST and CDT, this script
+tracks "have I already sent today" in one small, non-secret GitHub
+repository variable (NOTIFY_LAST_SENT_DATE — just a date string like
+"2026-10-11", nothing else). Each run after 5am Central checks that
+variable; if today's date isn't in it yet, it sends and updates it. A
+run before 5am, or a later run on a day already marked sent, does
+nothing. Reading/writing that variable needs the "actions: write"
+permission on the GITHUB_TOKEN — see deploy.yml's comment on that.
+
+If GITHUB_TOKEN or GITHUB_REPOSITORY aren't available (e.g. running
+this script locally rather than in Actions), the state check is
+skipped entirely and this falls back to the old exact-hour behavior —
+degraded, but never crashes the build over something this optional.
 
 Testing it on demand: the Actions tab's "Run workflow" button (manual
 workflow_dispatch) has a "force_notify" checkbox. Ticking it sets the
-FORCE_NTFY_SEND env var for that one run only, which skips the
-hour-of-day check below — useful for confirming NTFY_TOPIC actually
-reaches your phone without waiting for 6am Central. A normal scheduled
-run never sets this, so the once-a-day timing is never affected by it.
+FORCE_NTFY_SEND env var for that one run only, which skips BOTH the
+5am-Central check and the already-sent-today check — useful for
+confirming NTFY_TOPIC actually reaches your phone without waiting. A
+forced send never updates NOTIFY_LAST_SENT_DATE, so it can't cause that
+day's real digest to be skipped. A normal scheduled run never sets
+FORCE_NTFY_SEND, so none of this affects the once-a-day timing.
 
 WHAT it sends: a short digest built from the SAME data already computed
 for the dashboard this run (see build_site.py — this is called with the
@@ -87,18 +108,91 @@ import sys
 import requests
 
 NTFY_PUBLISH_URL = "https://ntfy.sh"
+GITHUB_API_URL = "https://api.github.com"
 TIMEOUT_SECONDS = 15
-# Which Central hour counts as "the once-a-day run." Matches this
-# project's existing 6am/3pm/8pm Central schedule (see deploy.yml) — this
-# is deliberately the EARLIEST of the three, so the digest is useful
-# before the day gets going rather than after.
-NOTIFY_HOUR_CENTRAL = 6
+# Earliest Central hour a scheduled run is allowed to send today's digest.
+# Not an exact-match target anymore (see module docstring) — just a floor,
+# so a very-late-running overnight slot doesn't send a "digest" before
+# the day has really started.
+EARLIEST_SEND_HOUR_CENTRAL = 5
+NOTIFY_STATE_VARIABLE = "NOTIFY_LAST_SENT_DATE"
 
 try:
     from zoneinfo import ZoneInfo
     CENTRAL = ZoneInfo("America/Chicago")
 except Exception:  # pragma: no cover - defensive only
     CENTRAL = None
+
+
+def _github_api_headers():
+    """Headers for GitHub's REST API, authenticated with this run's
+    short-lived GITHUB_TOKEN. Returns None if that token (or the repo
+    name GitHub also sets automatically) isn't available — e.g. a local
+    run outside Actions — so callers can fall back gracefully."""
+    token = (os.environ.get("GITHUB_TOKEN") or "").strip()
+    repo = (os.environ.get("GITHUB_REPOSITORY") or "").strip()
+    if not token or not repo:
+        return None, None
+    return repo, {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+
+def _get_last_sent_date():
+    """Reads NOTIFY_LAST_SENT_DATE from this repo's Actions variables.
+    Returns None if it's never been set, or if the lookup can't be made
+    at all (no token, network hiccup, etc.) — callers treat None as
+    "unknown, so don't skip on its account," which only risks an extra
+    send rather than a missed one."""
+    repo, headers = _github_api_headers()
+    if not headers:
+        return None
+    try:
+        resp = requests.get(
+            f"{GITHUB_API_URL}/repos/{repo}/actions/variables/{NOTIFY_STATE_VARIABLE}",
+            headers=headers,
+            timeout=TIMEOUT_SECONDS,
+        )
+        if resp.status_code == 404:
+            return None  # never sent before — normal on first run
+        resp.raise_for_status()
+        return resp.json().get("value")
+    except Exception:  # noqa: BLE001 - deliberate: a lookup failure must never block a real send
+        return None
+
+
+def _set_last_sent_date(date_key):
+    """Records that today's digest was sent, so later runs today (or a
+    delayed duplicate of today's slot) don't send it again. Tries PATCH
+    first (variable already exists after day one); falls back to POST
+    (first time ever) if that 404s. Any failure here is logged but never
+    raised — a failed state write just risks a possible duplicate next
+    time, which is far less bad than this function breaking the build."""
+    repo, headers = _github_api_headers()
+    if not headers:
+        return
+    base = f"{GITHUB_API_URL}/repos/{repo}/actions/variables"
+    try:
+        resp = requests.patch(
+            f"{base}/{NOTIFY_STATE_VARIABLE}",
+            headers=headers,
+            json={"name": NOTIFY_STATE_VARIABLE, "value": date_key},
+            timeout=TIMEOUT_SECONDS,
+        )
+        if resp.status_code == 404:
+            resp = requests.post(
+                base,
+                headers=headers,
+                json={"name": NOTIFY_STATE_VARIABLE, "value": date_key},
+                timeout=TIMEOUT_SECONDS,
+            )
+        resp.raise_for_status()
+    except Exception as exc:  # noqa: BLE001 - deliberate: see docstring
+        print(f"[notify] couldn't record last-sent-date ({type(exc).__name__}) "
+              f"— today's digest still sent; a future run might duplicate it",
+              file=sys.stderr)
 
 
 def _build_digest_lines(data, today_key):
@@ -156,10 +250,14 @@ def maybe_send_digest(data, dashboard_url=None):
 
     now_central = datetime.datetime.now(CENTRAL)
     forced = (os.environ.get("FORCE_NTFY_SEND") or "").strip().lower() == "true"
-    if now_central.hour != NOTIFY_HOUR_CENTRAL and not forced:
-        return  # not the once-a-day run, and nobody asked for a test send
-
     today_key = now_central.date().isoformat()
+
+    if not forced:
+        if now_central.hour < EARLIEST_SEND_HOUR_CENTRAL:
+            return  # too early in the day — wait for a later run
+        if _get_last_sent_date() == today_key:
+            return  # a run earlier today (any of the six slots) already sent it
+
     lines = _build_digest_lines(data, today_key)
     message = "\n".join(lines)
     date_label = now_central.strftime("%a, %b %-d")
@@ -197,6 +295,10 @@ def maybe_send_digest(data, dashboard_url=None):
         # Safe to log: just confirmation + how many lines, never the
         # actual task/event text that went into the notification body.
         print(f"[notify] digest sent ({len(lines)} line(s))", file=sys.stderr)
+        if not forced:
+            # A forced test send deliberately does NOT update this, so a
+            # test earlier in the day never blocks the day's real digest.
+            _set_last_sent_date(today_key)
     except Exception as exc:  # noqa: BLE001 - deliberate: a failed notification must never break the build
         # Safe to log: an HTTP status code and a response body's first 200
         # characters from ntfy.sh's own error message are not secrets (they
