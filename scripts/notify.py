@@ -151,13 +151,21 @@ def maybe_send_digest(data):
         message = "(Test send — triggered manually)\n" + message
 
     try:
+        # ntfy's JSON publish API requires priority as an INTEGER 1-5 (1=min,
+        # 3=default, 5=max) — NOT the string "high"/"default" the header-based
+        # publish API accepts. Sending a string here is what caused the first
+        # test send to fail with a generic "request body must be valid JSON"
+        # 400 error: ntfy's JSON decoder chokes on the type mismatch and
+        # reports it as a parse failure rather than a field-specific one.
+        NTFY_PRIORITY_URGENT = 4  # "high" — shown with a red bar, bypasses some DND
+        NTFY_PRIORITY_DEFAULT = 3  # normal priority, no special treatment
         resp = requests.post(
             NTFY_PUBLISH_URL,
             json={
                 "topic": topic,
                 "title": f"Daily Compass — {date_label}",
                 "message": message,
-                "priority": "high" if (lines and lines[0].startswith("⚠")) else "default",
+                "priority": NTFY_PRIORITY_URGENT if (lines and lines[0].startswith("⚠")) else NTFY_PRIORITY_DEFAULT,
                 "tags": ["compass"],
             },
             timeout=TIMEOUT_SECONDS,
