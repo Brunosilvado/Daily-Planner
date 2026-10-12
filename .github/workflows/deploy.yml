@@ -14,25 +14,40 @@ on:
       - "scripts/**"
       - ".github/workflows/deploy.yml"
   schedule:
-    # Six runs/day, spanning both UTC-6 (CST) and UTC-5 (CDT) equivalents
-    # of 6am / 3pm / 8pm Central, so the dashboard stays fresh without
-    # needing a twice-yearly manual DST edit.
-    #
-    # Minute 17, not 0: GitHub's own docs say scheduled workflows are
-    # most likely to be delayed right at the top of the hour, when the
-    # most other repos' cron jobs are also trying to fire. Every run
-    # that landed near 6am Central before this change was actually a
-    # badly-delayed firing of one of these six slots — up to ~5 hours
-    # late — because they were all queued at minute 0. This alone won't
-    # guarantee on-time delivery (GitHub never promises exact timing for
-    # the free schedule trigger), which is why notify.py also no longer
-    # depends on hitting one exact hour — see its own comments.
-    - cron: "17 11 * * *"
-    - cron: "17 12 * * *"
+    # Minute 17 (not 0) for the afternoon/evening dashboard refreshes:
+    # GitHub's own docs say scheduled workflows are most likely to be
+    # delayed right at the top of the hour, when the most other repos'
+    # cron jobs are also trying to fire. These two just keep the
+    # dashboard's data fresh in the afternoon/evening — no notification
+    # depends on hitting either one exactly.
     - cron: "17 20 * * *"
     - cron: "17 21 * * *"
     - cron: "17 1 * * *"
     - cron: "17 2 * * *"
+    #
+    # Morning cluster — nine candidates, 20 minutes apart, spanning
+    # 10:07-12:47 UTC. That range covers roughly 5am-7:50am Central
+    # under BOTH UTC-5 (CDT) and UTC-6 (CST), so no twice-yearly manual
+    # DST edit is needed. This many candidates exist for ONE reason:
+    # getting the daily push notification (see notify.py) close to 6am
+    # actually requires it, because GitHub's free schedule trigger can
+    # go quiet for hours (on 2026-10-12, nothing fired between 4:17am
+    # and 9am Central with only two morning candidates) — having nine
+    # chances instead of two makes it very likely at least one lands
+    # close to on-time, and notify.py's own 5:50-Central floor (see its
+    # comments) picks the first eligible one as that day's send, so
+    # only one notification goes out even though many runs fire. Every
+    # run still only takes ~20-30s and changes nothing else about cost
+    # (GitHub Actions on a public repo is unmetered).
+    - cron: "7 10 * * *"
+    - cron: "27 10 * * *"
+    - cron: "47 10 * * *"
+    - cron: "7 11 * * *"
+    - cron: "27 11 * * *"
+    - cron: "47 11 * * *"
+    - cron: "7 12 * * *"
+    - cron: "27 12 * * *"
+    - cron: "47 12 * * *"
 
 permissions:
   contents: read

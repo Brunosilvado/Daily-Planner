@@ -110,11 +110,16 @@ import requests
 NTFY_PUBLISH_URL = "https://ntfy.sh"
 GITHUB_API_URL = "https://api.github.com"
 TIMEOUT_SECONDS = 15
-# Earliest Central hour a scheduled run is allowed to send today's digest.
-# Not an exact-match target anymore (see module docstring) — just a floor,
-# so a very-late-running overnight slot doesn't send a "digest" before
-# the day has really started.
-EARLIEST_SEND_HOUR_CENTRAL = 5
+# Earliest Central (hour, minute) a scheduled run is allowed to send
+# today's digest. Paired with deploy.yml's dense 10:07-12:47 UTC morning
+# cluster, this picks out the first candidate at/after 6:07am Central
+# under normal conditions (not an exact-match target — just a floor, so
+# an early 5am-ish candidate doesn't send well ahead of the "6am" the
+# cluster is built around). If every morning candidate gets delayed
+# past this floor on a given day, the digest still goes out on whichever
+# run (even the afternoon/evening ones) is the first to notice it hasn't
+# sent yet — see the module docstring.
+EARLIEST_SEND_TIME_CENTRAL = (5, 50)  # (hour, minute)
 NOTIFY_STATE_VARIABLE = "NOTIFY_LAST_SENT_DATE"
 
 try:
@@ -253,10 +258,10 @@ def maybe_send_digest(data, dashboard_url=None):
     today_key = now_central.date().isoformat()
 
     if not forced:
-        if now_central.hour < EARLIEST_SEND_HOUR_CENTRAL:
+        if (now_central.hour, now_central.minute) < EARLIEST_SEND_TIME_CENTRAL:
             return  # too early in the day — wait for a later run
         if _get_last_sent_date() == today_key:
-            return  # a run earlier today (any of the six slots) already sent it
+            return  # a run earlier today already sent it
 
     lines = _build_digest_lines(data, today_key)
     message = "\n".join(lines)

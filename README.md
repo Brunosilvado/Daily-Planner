@@ -139,17 +139,22 @@ code changes, no restart needed.
 
 ### What you'll get, and when
 
-Once a day — the first run that happens at or after 5am Central, not
-necessarily the one "scheduled" for 6am. GitHub's free scheduler is
-explicitly best-effort and can run a scheduled job hours late (its own
-docs flag the top of the hour as the most delay-prone moment, which is
-exactly why this project's six daily run times were shifted off :00).
-Rather than depend on hitting one exact minute, the build keeps a tiny
-note of which day it last sent a digest, so whichever of the six daily
-runs turns out to be the first one after 5am that day is the one that
-sends — even if it's running late. **Not conditional on anything being
-due** — it sends every day even if there's nothing urgent, just so the
-absence of a notification is never something you have to interpret.
+Once a day, aimed at 6am Central — not a hard guarantee, since GitHub's
+free scheduler is explicitly best-effort and can run a scheduled job
+hours late (its own docs flag the top of the hour as the most
+delay-prone moment, which is why none of this project's run times land
+on exact hours anymore). To get close to 6am anyway, there are now nine
+candidate runs clustered every 20 minutes from roughly 5am to 7:50am
+Central — the build keeps a tiny note of which day it last sent a
+digest, so the FIRST of those nine that fires at/after 5:50am Central
+is the one that actually sends, and the other eight that day do
+nothing extra. Most days that lands within half an hour of 6am; if
+every single one of those nine gets delayed (rare, but GitHub makes no
+promises), the digest still goes out later that day on the first
+afternoon/evening run instead of silently never sending. **Not
+conditional on anything being due** — it sends every day even if
+there's nothing urgent, just so the absence of a notification is never
+something you have to interpret.
 The message lists, in order: anything overdue, anything flagged `!!`
 as a priority (see "Flagging something as a priority" above), any
 flagged calendar event for today, and anything plain due today — or
