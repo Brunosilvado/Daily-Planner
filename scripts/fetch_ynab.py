@@ -194,10 +194,13 @@ def _cash_flow_for_range(budget_id, token, account_types, since_date, before_dat
 EXCLUDED_CATEGORY_GROUPS = {"Credit Card Payments", "Internal Master Category"}
 
 
-def _overspent_categories(budget_id, token, max_results=5):
+def _overspent_categories(budget_id, token, max_results=8):
     """Returns up to `max_results` categories that are over budget this
     month, worst first, as [{"category": name, "over": amount}, ...] —
-    or [] once nothing is over.
+    or [] once nothing is over. This is the dashboard's answer to "where
+    did I overspend" (2026-10-30, at Bruno's request) — raised from 5 to
+    8 results specifically so it's a real breakdown, not just a taste of
+    the worst offender.
 
     A category's "balance" going negative is YNAB's own definition of
     overspent: you've spent more in it this month than you'd budgeted,
@@ -207,6 +210,15 @@ def _overspent_categories(budget_id, token, max_results=5):
     secret, but more specific than anything else this dashboard already
     shows), so this is deliberately scoped to the category *name* and
     *how far over* only — never which transactions caused it.
+
+    Heads up, this list won't sum to the headline "Net" figure above it:
+    this is YNAB's own per-category, BUDGETED-vs-ACTUAL view (accrual —
+    a credit card swipe counts the day you swipe it), while the Net
+    headline is this script's cash-basis, WHOLE-MONTH view (counts the
+    card's bill payment instead, plus nets out savings transfers — see
+    the "Calendar month, CASH-basis" section above). They're answering
+    two different questions on purpose: this list is "which budget line
+    ran hot," the headline is "did my bank balance actually grow."
 
     Uses /budgets/{id}/categories (grouped by category_group, with each
     category's budgeted/activity/balance already reflecting the CURRENT

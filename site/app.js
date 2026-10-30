@@ -328,6 +328,10 @@ function renderMoney(){
         ul.appendChild(li);
       });
       alertWrap.appendChild(ul);
+      const hint=document.createElement('p');
+      hint.className='sub'; hint.style.margin='6px 0 0'; hint.style.fontSize='.8rem';
+      hint.textContent="These are YNAB's own per-category budget-vs-actual figures, so they won't add up to the Net above — Net also folds in credit card bill payments and savings transfers, which aren't a single category.";
+      alertWrap.appendChild(hint);
       bodyWrap.appendChild(alertWrap);
     }
 

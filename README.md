@@ -327,14 +327,23 @@ month, CASH-basis" docstring section if you ever want the exact rules.
 ### One small, deliberate exception: YNAB category names
 
 By request, the Money tab now names any budget category that's over
-budget this month (e.g. "Groceries — $40 over"), so the dashboard can
-actually tell you *which* category needs attention, not just whether
-the month overall looks fine. That's a bit more specific than the
-cash-flow-only totals everything else here shows — still no account
-balances or individual transactions, just a category name you chose
-yourself plus how far over it is. Worth knowing if "no specifics beyond
-totals" mattered to you; see `scripts/fetch_ynab.py`'s own notes for the
-full reasoning.
+budget this month (e.g. "Groceries — $40 over"), listing up to the 8
+worst, so the dashboard can actually tell you *which* categories need
+attention — not just whether the month overall looks fine. That's a bit
+more specific than the cash-flow-only totals everything else here
+shows — still no account balances or individual transactions, just a
+category name you chose yourself plus how far over it is. Worth knowing
+if "no specifics beyond totals" mattered to you; see
+`scripts/fetch_ynab.py`'s own notes for the full reasoning.
+
+**Why this list won't add up to the Net figure above it:** this is
+YNAB's own per-category budgeted-vs-actual view (a card swipe counts
+right away), while Net above uses the cash-basis, whole-month view
+described earlier on this page (counts the card's bill *payment*
+instead, and nets out savings transfers). They're deliberately
+answering two different questions — "which budget line ran hot" versus
+"did my bank balance actually grow" — so don't expect the categories'
+"over" amounts to sum to the gap between Net and what you expected.
 
 ## If something looks broken
 
