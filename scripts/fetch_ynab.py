@@ -17,19 +17,36 @@ Settings -> Secrets and variables -> Actions -> Variables tab):
     ahead of that. Defaults to 5197.42 if not set. Update it there
     whenever your expected income changes — no code change needed.
 
-Why "last 30 days" instead of "this calendar month":
-  A calendar-month view resets to $0 on the 1st, so a credit card payment
-  that lands on the 1st (covering purchases from the month that just
-  ended) makes the brand-new month look artificially bad for a few days.
-  A rolling 30-day window avoids that cliff — every day, it's simply "the
-  last 30 days of real cash flow." Transfers between your own accounts
-  (including paying off a tracked credit card) are excluded entirely, the
-  same way YNAB's own reports exclude them, so money moving between your
-  own accounts never counts as income or spending here.
-  Note: this smooths the *presentation*; it can't retroactively fix a
-  purchase that was entered as one lump payment-day transaction instead
-  of being dated when it actually happened — that still needs fixing at
-  the YNAB data-entry level to be fully accurate.
+Calendar month, CASH-basis (changed 2026-10-30 at Bruno's request):
+  This used to show a rolling 30-day window using YNAB's own accrual
+  convention (a credit card purchase counts as "spent" the day you swipe
+  it; paying the card bill later was a "transfer," excluded entirely).
+  That's the right way to track a BUDGET, but it quietly hid the thing
+  Bruno actually wanted to see: "did my bank balance really grow or
+  shrink this month" — because paying off last month's card bill is a
+  real chunk of cash leaving checking, and under the old accrual view it
+  never showed up as "spent" in the month it was actually paid.
+
+  So this now tracks real cash movement, for the actual calendar month,
+  using each account's TYPE (fetched once via /budgets/{id}/accounts):
+    - checking/cash accounts are "where your spendable money lives."
+      Only THESE accounts' transactions get counted at all.
+    - A transfer from checking to a credit-card/line-of-credit account
+      (i.e. paying the bill) counts as SPENT — that's the real cash
+      leaving, in the month you actually paid it, which is the whole
+      point of this change.
+    - A transfer from checking to a savings account counts as SAVED,
+      tracked separately from "spent" — it's still your money, just set
+      aside, so it shouldn't look like it vanished. A transfer the other
+      way (drawing savings back into checking) subtracts from "saved."
+    - A transfer between two checking/cash accounts (reshuffling your
+      own spendable money) counts as neither — it nets to zero either way.
+    - Everything else (a plain purchase, a paycheck deposit) counts
+      exactly as it looks: non-transfer money in is income, money out is
+      spending.
+  "This month" resets to $0 on the 1st on purpose now — that's what
+  "the current month" means — so the first few days of a new month will
+  look thin until transactions catch up; that's expected, not a bug.
 
 Security notes:
   - YNAB's API doesn't offer a read-only scoped token — any Personal
@@ -64,7 +81,17 @@ import requests
 API_BASE = "https://api.ynab.com/v1"
 TIMEOUT_SECONDS = 15
 DEFAULT_EXPECTED_MONTHLY_INCOME = 5197.42
-ROLLING_WINDOW_DAYS = 30
+
+# Account-type classification for the cash-basis calculation — see the
+# module docstring's "Calendar month, CASH-basis" section for what each
+# bucket means. Spelled out as sets (not a single dict) because YNAB has
+# several account "type" strings and only a few matter here; anything not
+# in any of these three sets (investmentAccount, mortgage, payPal, etc.)
+# is simply left out of the cash-flow calculation entirely, same as it
+# would be if transfers to/from it were excluded outright.
+CHECKING_ACCOUNT_TYPES = {"checking", "cash"}
+SAVINGS_ACCOUNT_TYPES = {"savings"}
+CREDIT_ACCOUNT_TYPES = {"creditCard", "lineOfCredit"}
 
 
 def _get(path, token):
@@ -81,35 +108,78 @@ def _money_from_milli(milli):
     return round(milli / 1000, 2)
 
 
-def _month_label(iso_date):
-    d = datetime.date.fromisoformat(iso_date)
-    return d.strftime("%B")
+def _get_account_types(budget_id, token):
+    """One call, cached by the caller for the whole run: {account_id:
+    type_string} for every account in the budget, open or closed (a
+    closed account can still own historical transactions this month's
+    range might include). Safe to log only a count — see the print
+    below — never account names, which YNAB account names very often
+    are (e.g. "Bruno — Chase Checking")."""
+    accounts = _get(f"/budgets/{budget_id}/accounts", token)["accounts"]
+    by_id = {a["id"]: a.get("type") for a in accounts}
+    print(f"[fetch_ynab] {len(by_id)} account(s) on this budget", file=sys.stderr)
+    return by_id
 
 
-def _rolling_30_day_flow(budget_id, token, today):
-    """Sums real income/spending over the trailing window, excluding any
-    transaction that's a transfer between the user's own accounts (a
-    credit card payment, a checking->savings move, etc.) — matching how
-    YNAB's own category/month reports already treat transfers."""
-    since = (today - datetime.timedelta(days=ROLLING_WINDOW_DAYS - 1)).isoformat()
+def _cash_flow_for_range(budget_id, token, account_types, since_date, before_date):
+    """Real cash-basis income/spent/saved for transactions dated
+    `since_date` (inclusive) up to `before_date` (EXCLUSIVE) — pass
+    tomorrow's date as before_date to mean "through today." See the
+    module docstring's "Calendar month, CASH-basis" section for exactly
+    what counts as what; this is that logic, mechanically. Only
+    transactions that happened ON a checking/cash account are examined
+    at all — a transaction that lives entirely on a credit card or
+    savings account (the OTHER leg of a transfer counted below) is
+    skipped here to avoid double-counting, since every transfer already
+    shows up once on its checking-account leg."""
     transactions = _get(
-        f"/budgets/{budget_id}/transactions?since_date={since}", token
+        f"/budgets/{budget_id}/transactions?since_date={since_date}", token
     )["transactions"]
 
     income_milli = 0
     spent_milli = 0
+    saved_milli = 0
     for t in transactions:
         if t.get("deleted"):
             continue
-        if t.get("transfer_account_id"):
-            continue  # transfer between the user's own accounts — not real cash flow
+        if t["date"] >= before_date:
+            continue  # since_date has no upper bound of its own; enforce one here
+        if account_types.get(t.get("account_id")) not in CHECKING_ACCOUNT_TYPES:
+            continue  # only look at the checking/cash side of the world
         amount = t.get("amount", 0)
-        if amount > 0:
-            income_milli += amount
-        else:
-            spent_milli += -amount
+        transfer_to = t.get("transfer_account_id")
 
-    return _money_from_milli(income_milli), _money_from_milli(spent_milli)
+        if not transfer_to:
+            # An ordinary purchase or deposit — counts exactly as it looks.
+            if amount > 0:
+                income_milli += amount
+            else:
+                spent_milli += -amount
+            continue
+
+        other_type = account_types.get(transfer_to)
+        if other_type in CREDIT_ACCOUNT_TYPES:
+            # Paying a credit card bill FROM checking — this is the real
+            # cash outflow this whole feature exists to capture. (A
+            # payment never flows the other direction in practice, but
+            # amount's sign is checked anyway rather than assumed.)
+            if amount < 0:
+                spent_milli += -amount
+        elif other_type in SAVINGS_ACCOUNT_TYPES:
+            # Money moved checking -> savings counts as saved (positive);
+            # money pulled back the other way, savings -> checking,
+            # subtracts from saved (you un-saved it, not "earned" it).
+            saved_milli += -amount
+        # else: transfer between two checking accounts, or to/from an
+        # account type outside all three buckets (investments, mortgage,
+        # etc.) — nets to zero / stays out of this view entirely, same
+        # as the old rolling-window behavior for every transfer.
+
+    return (
+        _money_from_milli(income_milli),
+        _money_from_milli(spent_milli),
+        _money_from_milli(saved_milli),
+    )
 
 
 # Category groups to leave out of the overspending alert entirely — not
@@ -180,33 +250,32 @@ def get_money_data():
     print(f"[fetch_ynab] token length={len(token)}, budget_id length={len(budget_id)}",
           file=sys.stderr)
 
-    today = datetime.date.today()
+    # Central time, not the runner's own clock (always UTC on GitHub
+    # Actions) — matters here specifically because "today" decides where
+    # the this-month/last-month boundary falls; using UTC could flip to
+    # the wrong month for several hours around midnight Central.
+    today = datetime.datetime.now(CENTRAL).date()
+    this_month_start = today.replace(day=1)
+    last_month_end_day = this_month_start - datetime.timedelta(days=1)
+    last_month_start = last_month_end_day.replace(day=1)
+    tomorrow = today + datetime.timedelta(days=1)  # exclusive upper bound = "through today"
 
     months = _get(f"/budgets/{budget_id}/months", token)["months"]
-    past_or_current = [
-        m for m in months if datetime.date.fromisoformat(m["month"]) <= today
-    ]
-    past_or_current.sort(key=lambda m: m["month"], reverse=True)
-    if not past_or_current:
-        return None
+    current_month_entry = next(
+        (m for m in months if m["month"] == this_month_start.isoformat()), None
+    )
+    this_budgeted = _money_from_milli((current_month_entry or {}).get("budgeted", 0))
 
-    current = past_or_current[0]
-    previous = past_or_current[1] if len(past_or_current) > 1 else None
+    this_month_label = today.strftime("%B")
+    last_month_label = last_month_end_day.strftime("%B")
 
-    def label_and_amounts(entry):
-        if entry is None:
-            return "", 0, 0
-        return (
-            _month_label(entry["month"]),
-            _money_from_milli(entry.get("income", 0)),
-            _money_from_milli(-entry.get("activity", 0)),  # activity is negative for spending
-        )
-
-    last_label, last_income, last_spent = label_and_amounts(previous)
-    this_month_label = _month_label(current["month"])
-    this_budgeted = _money_from_milli(current.get("budgeted", 0))
-
-    last30_income, last30_spent = _rolling_30_day_flow(budget_id, token, today)
+    account_types = _get_account_types(budget_id, token)
+    this_income, this_spent, this_saved = _cash_flow_for_range(
+        budget_id, token, account_types, this_month_start.isoformat(), tomorrow.isoformat()
+    )
+    last_income, last_spent, last_saved = _cash_flow_for_range(
+        budget_id, token, account_types, last_month_start.isoformat(), this_month_start.isoformat()
+    )
 
     expected_income_raw = os.environ.get("YNAB_EXPECTED_MONTHLY_INCOME")
     try:
@@ -230,10 +299,21 @@ def get_money_data():
 
     return {
         "asOf": now_central,
-        "last30": {"income": last30_income, "spent": last30_spent},
-        "thisMonth": {"label": this_month_label, "budgeted": this_budgeted},
-        "lastMonth": {"label": last_label, "income": last_income, "spent": last_spent},
+        "thisMonth": {
+            "label": this_month_label,
+            "income": this_income,
+            "spent": this_spent,
+            "saved": this_saved,
+            "budgeted": this_budgeted,
+        },
+        "lastMonth": {
+            "label": last_month_label,
+            "income": last_income,
+            "spent": last_spent,
+            "saved": last_saved,
+        },
         "expectedMonthlyIncome": round(expected_income, 2),
         "overBudgetCategories": over_budget,
-        "note": "From YNAB directly. Card purchases that don’t auto-sync into YNAB may understate spending.",
+        "note": "From YNAB directly, cash-basis (includes credit card bill payments as spending "
+                "when paid). Card purchases that don’t auto-sync into YNAB may understate spending.",
     }

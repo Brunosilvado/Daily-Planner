@@ -285,6 +285,39 @@ small residual exposure window, no new credentials or rework needed.
   status API GitHub itself exposes was checked by hand and only ever
   reveals the harmless root URL, never the secret slug.
 
+## How the Money tab counts "spent" (changed 2026-10-30)
+
+By request, the Money tab now shows the real **calendar month** — it
+resets to $0 on the 1st, so the first couple of days of a new month will
+look thin until transactions catch up. That's expected.
+
+More importantly, it now tracks **cash, not YNAB's own budgeting
+convention**. The difference, concretely:
+
+- YNAB's own convention counts a credit card purchase as "spent" the
+  day you swipe the card. Paying the card's bill later is just a
+  "transfer" and doesn't count as spending again (sensibly, so it's not
+  double-counted) — but that also means the actual bill payment never
+  shows up as money leaving your account in the month you paid it.
+- This dashboard now does the opposite: it ignores a card purchase at
+  swipe-time, and instead counts the **bill payment** as spending, in
+  whichever month you actually paid it. That's the fix for the exact
+  problem behind this change — paying off last month's card balance
+  with this month's money is real cash leaving your checking account,
+  and now it shows up as spending in the month it actually happened,
+  instead of quietly not counting anywhere.
+- Money moved to savings is tracked separately as **Saved**, not lumped
+  into "Spent" — it's still your money, just set aside, so "Net" is
+  Received − Spent − Saved: the real change in your checking balance,
+  with savings broken out so you can see both at once.
+
+This only works by knowing which of your YNAB accounts are checking/cash
+(where "Net" is measured), which are credit cards (a transfer there
+counts as Spent), and which are savings (a transfer there counts as
+Saved) — pulled automatically from each account's type in YNAB, nothing
+to configure. The full mechanics are in `scripts/fetch_ynab.py`'s "Calendar
+month, CASH-basis" docstring section if you ever want the exact rules.
+
 ### One small, deliberate exception: YNAB category names
 
 By request, the Money tab now names any budget category that's over

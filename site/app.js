@@ -147,7 +147,7 @@ function plan(d){
  */
 
 let liveData={calendarConnected:false, todoConnected:false, asOf:'', items:{}};
-let money={asOf:'', last30:{income:0, spent:0}, thisMonth:{label:'', budgeted:0}, lastMonth:{label:'', income:0, spent:0}, expectedMonthlyIncome:0, overBudgetCategories:[], note:''};
+let money={asOf:'', thisMonth:{label:'', income:0, spent:0, saved:0, budgeted:0}, lastMonth:{label:'', income:0, spent:0, saved:0}, expectedMonthlyIncome:0, overBudgetCategories:[], note:''};
 let tasks={asOf:'', groups:[]};
 let generatedAt=null; // when data.json was last regenerated, filled in once it loads
 
@@ -211,12 +211,17 @@ function today(){
  *  you're looking at a different tab.
  */
 function renderMoney(){
-  const last30Net = money.last30.income - money.last30.spent;
-  const lastNet = money.lastMonth.income - money.lastMonth.spent;
+  // Net = income minus spent minus saved: the actual change in checking-
+  // account balance this month, fully accounting for every dollar
+  // (spending, including credit-card bill payments; saving, tracked
+  // separately below since it's still your money). See fetch_ynab.py's
+  // "Calendar month, CASH-basis" docstring section for the full reasoning.
+  const thisNet = money.thisMonth.income - money.thisMonth.spent - money.thisMonth.saved;
+  const lastNet = money.lastMonth.income - money.lastMonth.spent - money.lastMonth.saved;
   // "Do we have any real YNAB data yet?" — true once at least one of
   // these numbers is non-zero. Used to tell "connected but genuinely
   // $0 everywhere" apart from "not connected, so everything defaults to 0".
-  const hasData = !!(money.last30.income || money.last30.spent || money.thisMonth.budgeted);
+  const hasData = !!(money.thisMonth.income || money.thisMonth.spent || money.thisMonth.budgeted);
   const budgeted = money.thisMonth.budgeted || 0;
   const expected = money.expectedMonthlyIncome || 0;
   const overBudgeted = hasData && expected>0 && budgeted>expected;
@@ -225,11 +230,12 @@ function renderMoney(){
   // can't crash this function on a slow-to-refresh device.
   const overCategories = money.overBudgetCategories || [];
 
-  // Signal dot: green while the last 30 days of real cash flow is positive,
-  // this month's budgeted amount hasn't outrun expected income, AND no
-  // individual category has overspent; amber the moment any of those
-  // tips the wrong way; idle/grey if there's nothing yet.
-  el('moneyDot').className = 'dot' + (!hasData ? '' : (last30Net<0||overBudgeted||overCategories.length ? ' warn' : ' ok'));
+  // Signal dot: green while this month's real cash flow (income minus
+  // spent minus saved) is positive, this month's budgeted amount hasn't
+  // outrun expected income, AND no individual category has overspent;
+  // amber the moment any of those tips the wrong way; idle/grey if
+  // there's nothing yet.
+  el('moneyDot').className = 'dot' + (!hasData ? '' : (thisNet<0||overBudgeted||overCategories.length ? ' warn' : ' ok'));
 
   // Small local helper: turns a list of [label, value, cssClass] triples
   // into a <div> full of label/value rows, matching the .stat-row style
@@ -255,23 +261,29 @@ function renderMoney(){
     empty.textContent='No YNAB activity yet.';
     bodyWrap.appendChild(empty);
   } else {
-    // Headline: the one number that answers "am I saving money right now?"
-    // Last 30 days, not calendar month — see fetch_ynab.py for why: a
-    // calendar month resets to $0 on the 1st, so a credit-card payment
-    // covering last month's purchases would otherwise make a brand-new
-    // month look artificially bad for the first few days.
+    // Headline: the one number that answers "did I actually come out
+    // ahead this month?" — real calendar month (resets on the 1st, so
+    // the first few days of a new month will look thin; that's expected,
+    // not a bug), cash-basis (a credit-card bill payment counts as spent
+    // THIS month if you paid it this month, not back when you swiped the
+    // card) — see fetch_ynab.py's "Calendar month, CASH-basis" notes.
     const headline=document.createElement('div'); headline.className='money-headline';
     const hLabel=document.createElement('span'); hLabel.className='label';
-    hLabel.textContent='Net · last 30 days';
-    const hValue=document.createElement('span'); hValue.className='value'+(last30Net<0?' warn':'');
-    hValue.textContent=(last30Net>=0?'+':'')+money$(last30Net);
+    hLabel.textContent='Net · '+(money.thisMonth.label||'this month');
+    const hValue=document.createElement('span'); hValue.className='value'+(thisNet<0?' warn':'');
+    hValue.textContent=(thisNet>=0?'+':'')+money$(thisNet);
     headline.append(hLabel,hValue);
     bodyWrap.appendChild(headline);
 
-    bodyWrap.appendChild(buildRows([
-      ['Received', money$(money.last30.income), ''],
-      ['Spent', money$(money.last30.spent), ''],
-    ]));
+    // "Saved" only gets its own row once it's actually non-zero, so a
+    // month with no savings transfers doesn't show a pointless "$0.00"
+    // line — Received/Spent already tell the whole story on their own.
+    const thisRows=[
+      ['Received', money$(money.thisMonth.income), ''],
+      ['Spent', money$(money.thisMonth.spent), ''],
+    ];
+    if(money.thisMonth.saved) thisRows.push(['Saved', money$(money.thisMonth.saved), '']);
+    bodyWrap.appendChild(buildRows(thisRows));
 
     // The budget-vs-expected-income bar — only shown once an expected
     // income figure is actually configured (YNAB_EXPECTED_MONTHLY_INCOME
@@ -325,14 +337,14 @@ function renderMoney(){
     // budgeted-vs-expected) and just adds a short nudge toward the alert
     // list when a category is over too, rather than repeating it.
     let statusLine='';
-    if(last30Net<0 && overBudgeted) statusLine='Spending has passed income over the last 30 days, and this month’s budgeted more than you expect to earn.';
-    else if(last30Net<0) statusLine='Spending has passed income over the last 30 days.';
+    if(thisNet<0 && overBudgeted) statusLine='Spending (including any credit card bills paid) has passed income this month, and this month’s budgeted more than you expect to earn.';
+    else if(thisNet<0) statusLine='Spending (including any credit card bills paid) has passed income this month.';
     else if(overBudgeted) statusLine='This month’s budgeted more than the expected income.';
-    else statusLine='Income is covering spending, and this month’s budget is within expected income.';
+    else statusLine='Income is covering spending this month, and this month’s budget is within expected income.';
     if(overCategories.length) statusLine+=' See the over-budget categories above.';
     const status=document.createElement('p');
     status.className='sub'; status.style.margin='12px 0 0'; status.style.fontWeight='600';
-    status.style.color=(last30Net<0||overBudgeted||overCategories.length)?'var(--warn)':'var(--ink-soft)';
+    status.style.color=(thisNet<0||overBudgeted||overCategories.length)?'var(--warn)':'var(--ink-soft)';
     status.textContent=statusLine;
     bodyWrap.appendChild(status);
   }
@@ -347,13 +359,15 @@ function renderMoney(){
 
   el('moneyBody').replaceChildren(bodyWrap);
 
-  // The collapsed "Last month (for reference)" panel — same three-row
-  // shape (received/spent/net) but for the prior calendar month.
+  // The collapsed "Last month (for reference)" panel — same shape as the
+  // main body above (received/spent/[saved]/net) but for the prior
+  // calendar month.
   const lastRows=[
     [`${money.lastMonth.label} — received`, money$(money.lastMonth.income), ''],
     [`${money.lastMonth.label} — spent`, money$(money.lastMonth.spent), ''],
-    [`${money.lastMonth.label} — net`, (lastNet>=0?'+':'')+money$(lastNet), lastNet<0?'warn':'good'],
   ];
+  if(money.lastMonth.saved) lastRows.push([`${money.lastMonth.label} — saved`, money$(money.lastMonth.saved), '']);
+  lastRows.push([`${money.lastMonth.label} — net`, (lastNet>=0?'+':'')+money$(lastNet), lastNet<0?'warn':'good']);
   el('moneyLastMonth').replaceChildren(buildRows(lastRows));
 }
 
@@ -476,7 +490,7 @@ function render(){
   // tab actually depends on — Calendar on Plan, YNAB on Money — rather
   // than always showing Calendar status regardless of what's on screen.
   if(moneyView){
-    const moneyHasData=!!(money.last30.income||money.last30.spent||money.thisMonth.budgeted);
+    const moneyHasData=!!(money.thisMonth.income||money.thisMonth.spent||money.thisMonth.budgeted);
     el('connStatus').textContent = moneyHasData ? 'YNAB live · '+money.asOf : 'Not connected';
     el('connStatus').className = moneyHasData ? 'pill live' : 'pill';
     return; // Money tab is fully handled by renderMoney() above — nothing more to do
