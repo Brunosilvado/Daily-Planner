@@ -145,13 +145,19 @@ hours late (its own docs flag the top of the hour as the most
 delay-prone moment, which is why none of this project's run times land
 on exact hours anymore). To get close to 6am anyway, there are now nine
 candidate runs clustered every 20 minutes from roughly 5am to 7:50am
-Central — the build keeps a tiny note of which day it last sent a
-digest, so the FIRST of those nine that fires at/after 5:50am Central
-is the one that actually sends, and the other eight that day do
-nothing extra. Most days that lands within half an hour of 6am; if
-every single one of those nine gets delayed (rare, but GitHub makes no
-promises), the digest still goes out later that day on the first
-afternoon/evening run instead of silently never sending. **Not
+Central — the build commits a tiny marker file noting which day it last
+sent a digest (fixed 2026-10-30: an earlier version tried to track this
+in a GitHub Actions "variable" instead, which turned out to silently
+never work at all — see `scripts/notify.py`'s docstring for the full
+story — so for a while every eligible run sent its own notification,
+which is why you may have seen a flood of several at once on a day
+GitHub ran a backlog of overdue runs together), so the FIRST of those
+nine that fires at/after 5:50am Central is the one that actually sends,
+and the other eight that day do nothing extra. Most days that lands
+within half an hour of 6am; if every single one of those nine gets
+delayed (rare, but GitHub makes no promises), the digest still goes out
+later that day on the first afternoon/evening run instead of silently
+never sending. **Not
 conditional on anything being due** — it sends every day even if
 there's nothing urgent, just so the absence of a notification is never
 something you have to interpret.

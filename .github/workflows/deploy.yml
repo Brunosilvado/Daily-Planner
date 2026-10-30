@@ -50,18 +50,23 @@ on:
     - cron: "47 12 * * *"
 
 permissions:
-  contents: read
+  # "write" (not just "read") lets notify.py commit ONE small, non-secret
+  # marker file (.github/notify-state/last-sent.txt — just a date string
+  # like "2026-10-11") via GitHub's Contents API, so it can tell "have we
+  # already sent today's digest" even when several scheduled runs land
+  # close together. This is GitHub's own short-lived per-run GITHUB_TOKEN
+  # — not a new credential — and the marker file sits outside every path
+  # this workflow's `push:` trigger watches (see that trigger's `paths:`
+  # above), so this commit can never kick off an extra deploy run.
+  #
+  # (Earlier version used "actions: write" to read/write an Actions
+  # repository VARIABLE instead — that never actually worked, because
+  # GitHub blocks the default GITHUB_TOKEN from the Actions variables API
+  # regardless of permissions. See notify.py's module docstring for the
+  # full story.)
+  contents: write
   pages: write
   id-token: write
-  # Lets notify.py read/write ONE small, non-secret repository variable
-  # (NOTIFY_LAST_SENT_DATE — just a date string like "2026-10-11") via
-  # GitHub's API, so it can tell "have we already sent today's digest"
-  # even when a scheduled run lands at an unpredictable time. This is
-  # the GITHUB_TOKEN GitHub already mints fresh for every run and
-  # revokes when the job ends — not a new credential — scoped to just
-  # this repo's Actions variables, nothing else. See notify.py's own
-  # comments for the full reasoning.
-  actions: write
 
 concurrency:
   group: pages
@@ -106,10 +111,10 @@ jobs:
           # scheduled/push-triggered run leaves this unset, so the normal
           # once-a-day behavior is never affected.
           FORCE_NTFY_SEND: ${{ inputs.force_notify && 'true' || '' }}
-          # Lets notify.py read/write the NOTIFY_LAST_SENT_DATE repository
-          # variable (see the "actions: write" permission comment above).
-          # This is GitHub's own short-lived per-run token, not a new
-          # secret — never printed, never written to any file.
+          # Lets notify.py commit the notify-state marker file (see the
+          # "contents: write" permission comment above). This is GitHub's
+          # own short-lived per-run token, not a new secret — never
+          # printed, never written to any file.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python scripts/build_site.py
 

@@ -30,15 +30,44 @@ this script required an EXACT hour match, and on its first real day in
 production, every one of that day's six scheduled runs landed 1-5 hours
 late and missed the window entirely — the digest silently never sent.
 
-To survive that without double-sending on the (by-design) two
-early-morning cron slots that cover both CST and CDT, this script
-tracks "have I already sent today" in one small, non-secret GitHub
-repository variable (NOTIFY_LAST_SENT_DATE — just a date string like
-"2026-10-11", nothing else). Each run after 5am Central checks that
-variable; if today's date isn't in it yet, it sends and updates it. A
-run before 5am, or a later run on a day already marked sent, does
-nothing. Reading/writing that variable needs the "actions: write"
-permission on the GITHUB_TOKEN — see deploy.yml's comment on that.
+To survive that without double-sending when several of deploy.yml's
+candidate runs end up firing close together, this script tracks "have I
+already sent today" in a tiny marker file committed to this repo
+(.github/notify-state/last-sent.txt — just a date like "2026-10-11",
+nothing else) via GitHub's Contents API. Each run after 5am Central
+reads that file; if today's date isn't in it yet, it CLAIMS the day
+first (commits the new date) and only sends if that claim succeeds —
+see "Claim-before-send" below for why that ordering matters. A run
+before 5am, or a later run on a day already claimed, does nothing.
+
+  Earlier version, and why it changed (2026-10-30): this used to store
+  the date in a GitHub Actions repository VARIABLE instead of a
+  committed file, using the "actions: write" permission. That silently
+  never worked — GitHub's own docs/community confirm the default
+  GITHUB_TOKEN is blocked from the Actions variables API entirely,
+  REGARDLESS of what permissions the workflow declares. So the state
+  check always failed, always returned "unknown," and EVERY eligible
+  run each day sent its own notification independently — normally just
+  an occasional duplicate, but on a day GitHub's scheduler fell behind
+  and fired several overdue runs in a burst (confirmed: 6 runs in 31
+  minutes on 2026-10-30), that meant 6 near-simultaneous notifications.
+  Committing a file is something the default GITHUB_TOKEN can actually
+  do (with "contents: write" — see deploy.yml), so this version uses
+  that instead, with no new credential or secret needed.
+
+  Claim-before-send: the marker gets committed BEFORE the ntfy POST
+  fires, not after. If the commit fails (including losing a race to
+  another near-simultaneous run — the Contents API requires the
+  current file's exact sha to update it, so a stale attempt is
+  rejected rather than silently overwriting), this run does NOT send,
+  on the theory that another run is already handling today or just
+  did. That's a deliberate change from "send first, record second":
+  the old order meant a run that got cut off between those two steps
+  could cause exactly the kind of duplicate this rewrite exists to
+  fix. The trade-off is a slightly higher chance of a rare missed day
+  if the commit step itself fails for an unrelated reason (network
+  hiccup, GitHub outage) — accepted deliberately, since duplicates
+  flooding a phone are the worse experience of the two.
 
 If GITHUB_TOKEN or GITHUB_REPOSITORY aren't available (e.g. running
 this script locally rather than in Actions), the state check is
@@ -50,8 +79,8 @@ workflow_dispatch) has a "force_notify" checkbox. Ticking it sets the
 FORCE_NTFY_SEND env var for that one run only, which skips BOTH the
 5am-Central check and the already-sent-today check — useful for
 confirming NTFY_TOPIC actually reaches your phone without waiting. A
-forced send never updates NOTIFY_LAST_SENT_DATE, so it can't cause that
-day's real digest to be skipped. A normal scheduled run never sets
+forced send never touches the marker file, so it can't cause that day's
+real digest to be skipped. A normal scheduled run never sets
 FORCE_NTFY_SEND, so none of this affects the once-a-day timing.
 
 WHAT it sends: a short digest built from the SAME data already computed
@@ -120,7 +149,11 @@ TIMEOUT_SECONDS = 15
 # run (even the afternoon/evening ones) is the first to notice it hasn't
 # sent yet — see the module docstring.
 EARLIEST_SEND_TIME_CENTRAL = (5, 50)  # (hour, minute)
-NOTIFY_STATE_VARIABLE = "NOTIFY_LAST_SENT_DATE"
+# Path (relative to the repo root) of the tiny marker file this uses to
+# claim "today's digest is handled." Deliberately outside site/, scripts/,
+# and anything else deploy.yml's `push:` trigger watches, so this script
+# committing it never kicks off an extra, unwanted deploy run.
+NOTIFY_STATE_PATH = ".github/notify-state/last-sent.txt"
 
 try:
     from zoneinfo import ZoneInfo
@@ -145,59 +178,74 @@ def _github_api_headers():
     }
 
 
-def _get_last_sent_date():
-    """Reads NOTIFY_LAST_SENT_DATE from this repo's Actions variables.
-    Returns None if it's never been set, or if the lookup can't be made
-    at all (no token, network hiccup, etc.) — callers treat None as
-    "unknown, so don't skip on its account," which only risks an extra
-    send rather than a missed one."""
+def _get_state_file():
+    """Reads the marker file's current content + sha from this repo via
+    GitHub's Contents API. Returns (date_string_or_None, sha_or_None).
+    sha is None when the file doesn't exist yet (first run ever) — the
+    caller needs that for a PUT's conflict check either way. Returns
+    (None, None) on any failure (no token, network hiccup, etc.) —
+    callers treat that "unknown" the same as "never sent," which risks
+    an extra send rather than a missed one, matching this module's
+    long-standing bias on lookup failures specifically (see
+    "Claim-before-send" above for why the CLAIM step's own failures are
+    handled the opposite way)."""
+    import base64
     repo, headers = _github_api_headers()
     if not headers:
-        return None
+        return None, None
     try:
         resp = requests.get(
-            f"{GITHUB_API_URL}/repos/{repo}/actions/variables/{NOTIFY_STATE_VARIABLE}",
+            f"{GITHUB_API_URL}/repos/{repo}/contents/{NOTIFY_STATE_PATH}",
             headers=headers,
             timeout=TIMEOUT_SECONDS,
         )
         if resp.status_code == 404:
-            return None  # never sent before — normal on first run
+            return None, None  # never sent before — normal on first run
         resp.raise_for_status()
-        return resp.json().get("value")
+        body = resp.json()
+        content = base64.b64decode(body.get("content", "")).decode("utf-8", "replace").strip()
+        return (content or None), body.get("sha")
     except Exception:  # noqa: BLE001 - deliberate: a lookup failure must never block a real send
-        return None
+        return None, None
 
 
-def _set_last_sent_date(date_key):
-    """Records that today's digest was sent, so later runs today (or a
-    delayed duplicate of today's slot) don't send it again. Tries PATCH
-    first (variable already exists after day one); falls back to POST
-    (first time ever) if that 404s. Any failure here is logged but never
-    raised — a failed state write just risks a possible duplicate next
-    time, which is far less bad than this function breaking the build."""
+def _claim_today(date_key, sha):
+    """Tries to commit `date_key` into the marker file, claiming today as
+    "being handled by this run." `sha` is the file's current sha from
+    _get_state_file() (None if the file doesn't exist yet). Returns True
+    only if the commit actually succeeds — including GitHub rejecting it
+    because another near-simultaneous run's sha is now stale, which is
+    the Contents API's own built-in race protection (a PUT's `sha` must
+    match the file's current sha, or it's rejected as a 409/422 conflict
+    rather than silently overwriting). Any failure returns False, which
+    makes the caller skip sending — see the module docstring's
+    "Claim-before-send" note for why a failure here must NOT fall back
+    to sending anyway."""
     repo, headers = _github_api_headers()
     if not headers:
-        return
-    base = f"{GITHUB_API_URL}/repos/{repo}/actions/variables"
+        return False
+    import base64
+    payload = {
+        "message": f"notify: mark {date_key} as sent [skip ci]",
+        "content": base64.b64encode(date_key.encode("utf-8")).decode("ascii"),
+    }
+    if sha:
+        payload["sha"] = sha
     try:
-        resp = requests.patch(
-            f"{base}/{NOTIFY_STATE_VARIABLE}",
+        resp = requests.put(
+            f"{GITHUB_API_URL}/repos/{repo}/contents/{NOTIFY_STATE_PATH}",
             headers=headers,
-            json={"name": NOTIFY_STATE_VARIABLE, "value": date_key},
+            json=payload,
             timeout=TIMEOUT_SECONDS,
         )
-        if resp.status_code == 404:
-            resp = requests.post(
-                base,
-                headers=headers,
-                json={"name": NOTIFY_STATE_VARIABLE, "value": date_key},
-                timeout=TIMEOUT_SECONDS,
-            )
         resp.raise_for_status()
+        return True
     except Exception as exc:  # noqa: BLE001 - deliberate: see docstring
-        print(f"[notify] couldn't record last-sent-date ({type(exc).__name__}) "
-              f"— today's digest still sent; a future run might duplicate it",
+        print(f"[notify] couldn't claim today ({type(exc).__name__}) "
+              f"— skipping send this run; another run may already have it, "
+              f"or today's digest may be missed if not",
               file=sys.stderr)
+        return False
 
 
 def _build_digest_lines(data, today_key):
@@ -260,8 +308,15 @@ def maybe_send_digest(data, dashboard_url=None):
     if not forced:
         if (now_central.hour, now_central.minute) < EARLIEST_SEND_TIME_CENTRAL:
             return  # too early in the day — wait for a later run
-        if _get_last_sent_date() == today_key:
-            return  # a run earlier today already sent it
+        sent_date, sha = _get_state_file()
+        if sent_date == today_key:
+            return  # a run earlier today already claimed (and sent) it
+        # Claim BEFORE sending — see the module docstring's
+        # "Claim-before-send" note. If this fails (including losing a
+        # race to another near-simultaneous run), skip the send rather
+        # than risk a duplicate.
+        if not _claim_today(today_key, sha):
+            return
 
     lines = _build_digest_lines(data, today_key)
     message = "\n".join(lines)
@@ -300,10 +355,6 @@ def maybe_send_digest(data, dashboard_url=None):
         # Safe to log: just confirmation + how many lines, never the
         # actual task/event text that went into the notification body.
         print(f"[notify] digest sent ({len(lines)} line(s))", file=sys.stderr)
-        if not forced:
-            # A forced test send deliberately does NOT update this, so a
-            # test earlier in the day never blocks the day's real digest.
-            _set_last_sent_date(today_key)
     except Exception as exc:  # noqa: BLE001 - deliberate: a failed notification must never break the build
         # Safe to log: an HTTP status code and a response body's first 200
         # characters from ntfy.sh's own error message are not secrets (they
