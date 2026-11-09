@@ -89,7 +89,21 @@ def _get_access_token(client_id, client_secret, refresh_token):
         },
         timeout=TIMEOUT_SECONDS,
     )
-    resp.raise_for_status()
+    try:
+        resp.raise_for_status()
+    except requests.HTTPError:
+        # Google's token endpoint returns the REASON in the body (e.g.
+        # {"error":"invalid_grant","error_description":"Token has been
+        # expired or revoked."}) — this is an error code/description, not
+        # a secret (never the token or client secret itself), and it's
+        # exactly what distinguishes "refresh token revoked — redo the
+        # one-time consent flow" from "wrong client id/secret" from
+        # anything else. Logging it here (once, at the source) means
+        # build_data.py's generic "calendar fetch failed" line downstream
+        # doesn't have to guess.
+        print(f"[fetch_calendar] token refresh failed (HTTP {resp.status_code}): "
+              f"{resp.text[:300]}", file=sys.stderr)
+        raise
     return resp.json()["access_token"]
 
 
@@ -170,12 +184,35 @@ def get_calendar_data():
     # its own request — label (e.g. "Bruno", "Claudia") gets prefixed onto
     # each event's title below so the dashboard can tell whose event is whose.
     skipped_outside_window = 0
+    failed_calendars = 0
     for cal in calendars:
         cal_id = cal.get("id")
         label = cal.get("label") or "Calendar"
         if not cal_id:
             continue
-        events = _fetch_events(access_token, cal_id, today_start, tomorrow_end)
+        try:
+            events = _fetch_events(access_token, cal_id, today_start, tomorrow_end)
+        except requests.HTTPError as exc:
+            # Isolated per calendar, same reasoning as build_data.py's
+            # top-level _safe_fetch: one calendar with a bad/typo'd id, a
+            # revoked share, or a deleted-but-still-listed id shouldn't
+            # take down the other six. Logs the label (which you chose,
+            # not secret) plus status + Google's short reason, so if it's
+            # ONE specific calendar, this says exactly which — the fix is
+            # then fixing or removing that one entry in GOOGLE_CALENDAR_IDS,
+            # not a bug in this script. Never logs the calendar id itself,
+            # since that's often an email address.
+            status = getattr(exc.response, "status_code", "?")
+            body_snippet = ""
+            if exc.response is not None:
+                try:
+                    body_snippet = exc.response.text[:200]
+                except Exception:  # pragma: no cover - defensive only
+                    pass
+            print(f"[fetch_calendar] '{label}' failed (HTTP {status}): {body_snippet!r} "
+                  f"— skipping this calendar, continuing with the rest", file=sys.stderr)
+            failed_calendars += 1
+            continue
         # Safe to log: a count only, never any event's title or time. If
         # an event you know exists isn't showing up on the dashboard, and
         # this count for its calendar is 0 (or lower than you'd expect),
@@ -231,7 +268,8 @@ def get_calendar_data():
     # timezone conversion edge case right at midnight) is worth a look.
     total_shown = sum(len(v) for v in items.values())
     print(f"[fetch_calendar] showing {total_shown} event(s) across today+tomorrow "
-          f"({skipped_outside_window} skipped as outside the window)", file=sys.stderr)
+          f"({skipped_outside_window} skipped as outside the window, "
+          f"{failed_calendars}/{len(calendars)} calendar(s) failed to fetch)", file=sys.stderr)
 
     now_label = now_central.strftime("%b %-d, %Y · %-I:%M %p Central")
 
